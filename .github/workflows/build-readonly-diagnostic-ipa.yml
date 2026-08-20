@@ -3,6 +3,8 @@ name: Build Read-Only Diagnostic IPA
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
