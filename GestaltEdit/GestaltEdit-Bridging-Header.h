@@ -4,3 +4,4 @@
 
 #import "GestaltAccess.h"
 #import "ProtectedFileReader.h"
+#import "EligibilityRuntimeBridge.h"
