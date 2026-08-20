@@ -1,0 +1,50 @@
+name: Build Read-Only Diagnostic IPA
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-26
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Build unsigned device app
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project GestaltEdit.xcodeproj \
+            -scheme GestaltEdit \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$PWD/build" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY='' \
+            build
+
+      - name: Package IPA
+        run: |
+          set -euo pipefail
+          APP="$PWD/build/Build/Products/Release-iphoneos/GestaltEdit.app"
+          test -d "$APP"
+          rm -rf Payload GestaltEdit-ReadOnlyDiagnostic.ipa
+          mkdir Payload
+          cp -R "$APP" Payload/
+          /usr/bin/zip -qry GestaltEdit-ReadOnlyDiagnostic.ipa Payload
+          /usr/bin/unzip -l GestaltEdit-ReadOnlyDiagnostic.ipa | head -40
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: GestaltEdit-ReadOnlyDiagnostic-IPA
+          path: GestaltEdit-ReadOnlyDiagnostic.ipa
+          if-no-files-found: error
+          retention-days: 7
