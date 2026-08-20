@@ -7,58 +7,89 @@ enum MobileGestaltReadOnlyDiagnostic {
         @convention(c) (CFString) -> Unmanaged<CFTypeRef>?
 
     static func run() {
-        print("")
-        print("========== MobileGestalt READ-ONLY Diagnostic ==========")
+        print(generateReport())
+    }
 
-        dumpAnswer("ChinaCellular")
-        dumpAnswer("RegionCode")
-        dumpAnswer("RegionInfo")
-        dumpAnswer("RegulatoryModelNumber")
-        dumpAnswer("ProductType")
-        dumpAnswer("HardwareModel")
+    static func generateReport() -> String {
+        var lines: [String] = []
+        lines.append("========== MobileGestalt READ-ONLY Diagnostic ==========")
+        lines.append("")
 
-        print("")
-        print("--- CacheExtra ---")
+        for key in [
+            "ChinaCellular",
+            "green-tea",
+            "not-green-tea",
+            "RegionCode",
+            "RegionInfo",
+            "RegulatoryModelNumber",
+            "ProductType",
+            "HardwareModel",
+            "DeviceSupportsGenerativeModelSystems"
+        ] {
+            lines.append(answerLine(for: key))
+        }
+
+        lines.append("")
+        lines.append("--- CacheExtra ---")
 
         do {
             let access = GestaltAccess.shared()
             try access.connect()
             guard let dictionary = try access.readGestalt() as? [String: Any] else {
-                print("CacheExtra = <unable to read MobileGestalt plist>")
-                print("=========================================================")
-                print("")
-                return
+                lines.append("CacheExtra = <unable to read MobileGestalt plist>")
+                lines.append("=========================================================")
+                return lines.joined(separator: "\n")
             }
 
             let plist = GestaltPlist(dict: dictionary)
             let cacheExtra = plist.cacheExtra
 
-            dumpCacheExtra(
+            lines.append(cacheExtraLine(
                 cacheExtra,
                 key: "2xVt/Zm4gAkjGGVTZxO/Qw",
-                name: "ChinaCellular"
-            )
-            dumpCacheExtra(
+                name: "ChinaCellular hash candidate"
+            ))
+            lines.append(cacheExtraLine(
+                cacheExtra,
+                key: "iyfxmLogGVIaH7aEgqwcIA",
+                name: "green-tea (Chinese-market device flag)"
+            ))
+            lines.append(cacheExtraLine(
+                cacheExtra,
+                key: "4snMZS8LJkSctKypt2m+xA",
+                name: "not-green-tea (non-Chinese-market device flag)"
+            ))
+            lines.append(cacheExtraLine(
                 cacheExtra,
                 key: "h63QSdBCiT/z0WU6rdQv6Q",
                 name: "RegionCode"
-            )
-            dumpCacheExtra(
+            ))
+            lines.append(cacheExtraLine(
+                cacheExtra,
+                key: "zHeENZu+wbg7PUprwNwBWg",
+                name: "RegionInfo (standard hash)"
+            ))
+            lines.append(cacheExtraLine(
                 cacheExtra,
                 key: "yK+xavymRGZ3xWc1tb8XDg",
-                name: "RegionInfo"
-            )
-            dumpCacheExtra(
+                name: "GestaltEdit iOS 27 region override key"
+            ))
+            lines.append(cacheExtraLine(
                 cacheExtra,
                 key: "97JDvERpVwO+GHtthIh7hA",
                 name: "RegulatoryModelNumber"
-            )
+            ))
+            lines.append(cacheExtraLine(
+                cacheExtra,
+                key: "A62OafQ85EJAiiqKn4agtg",
+                name: "DeviceSupportsGenerativeModelSystems"
+            ))
         } catch {
-            print("CacheExtra read failed: \(error.localizedDescription)")
+            lines.append("CacheExtra read failed: \(error.localizedDescription)")
         }
 
-        print("=========================================================")
-        print("")
+        lines.append("=========================================================")
+        return lines.joined(separator: "\n")
     }
 
     private static func copyAnswer(_ key: String) -> AnyObject? {
@@ -92,30 +123,27 @@ enum MobileGestaltReadOnlyDiagnostic {
         return nil
     }
 
-    private static func dumpAnswer(_ key: String) {
+    private static func answerLine(for key: String) -> String {
         guard let value = copyAnswer(key) else {
-            print("MGCopyAnswer(\(key)) = <nil>")
-            return
+            return "MGCopyAnswer(\(key)) = <nil>"
         }
 
         if let number = value as? NSNumber,
            CFGetTypeID(number) == CFBooleanGetTypeID() {
-            print("MGCopyAnswer(\(key)) = \(number.boolValue) [Boolean]")
-            return
+            return "MGCopyAnswer(\(key)) = \(number.boolValue) [Boolean]"
         }
 
-        print("MGCopyAnswer(\(key)) = \(value) [\(type(of: value))]")
+        return "MGCopyAnswer(\(key)) = \(value) [\(type(of: value))]"
     }
 
-    private static func dumpCacheExtra(
+    private static func cacheExtraLine(
         _ cacheExtra: [String: Any],
         key: String,
         name: String
-    ) {
+    ) -> String {
         if let value = cacheExtra[key] {
-            print("CacheExtra \(name) [\(key)] = \(value) [\(type(of: value))]")
-        } else {
-            print("CacheExtra \(name) [\(key)] = <ABSENT>")
+            return "CacheExtra \(name) [\(key)] = \(value) [\(type(of: value))]"
         }
+        return "CacheExtra \(name) [\(key)] = <ABSENT>"
     }
 }
