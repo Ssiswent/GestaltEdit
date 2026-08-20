@@ -16,7 +16,7 @@ struct DiagnosticExportView: View {
                         Label("Read-Only Eligibility / Country Diagnostic", systemImage: "magnifyingglass.circle")
                             .font(.headline)
 
-                        Text("Reads MobileGestalt plus protected eligibilityd, OS eligibility, countryd and GMS availability caches. This build contains no Apply or Revert action and does not modify those files.")
+                        Text("Reads MobileGestalt, eligibility state, and in-process GM / VisionKit availability diagnostics. This build contains no Apply or Revert action and does not modify system files or preferences.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
@@ -76,7 +76,7 @@ struct DiagnosticExportView: View {
                 isPresented: $isExporting,
                 document: DiagnosticTextDocument(text: report),
                 contentType: .plainText,
-                defaultFilename: "GestaltEdit-Eligibility-Country-Diagnostic"
+                defaultFilename: "GestaltEdit-VI-Advanced-Diagnostic"
             ) { _ in }
         }
     }
@@ -85,7 +85,9 @@ struct DiagnosticExportView: View {
         guard !isWorking else { return }
         isWorking = true
         copied = false
-        report = EligibilityCountryDiagnostic.generateReport()
+        let baseReport = EligibilityCountryDiagnostic.generateReport()
+        let advancedReport = GEVIAdvancedProbeReport()
+        report = baseReport + "\n\n" + advancedReport
         isWorking = false
     }
 }
