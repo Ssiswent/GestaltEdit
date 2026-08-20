@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 import UIKit
 
 struct DiagnosticExportView: View {
-    @State private var report = "Running caller entitlement differential probe…"
+    @State private var report = "Resolving current iOS 27 VI caller paths…"
     @State private var isExporting = false
     @State private var copied = false
     @State private var isWorking = false
@@ -13,10 +13,10 @@ struct DiagnosticExportView: View {
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        Label("Caller Entitlement Probe", systemImage: "doc.text.magnifyingglass")
+                        Label("VI Caller Path Probe", systemImage: "doc.text.magnifyingglass")
                             .font(.headline)
 
-                        Text("Crash-safe, read-only diagnostic. It only reads code-signature entitlement blobs from this app and selected Apple system executables. No method swizzling, XPC connection, availability setter, preference write, or MobileGestalt write is used.")
+                        Text("Read-only diagnostic. Resolves current Camera / visualintelligenced / Tamale / ScreenshotServicesService paths and compares their embedded code-signing entitlements. Protected file reads use temporary bad_query leases only; no availability XPC call or system write is performed.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
@@ -60,7 +60,7 @@ struct DiagnosticExportView: View {
                 }
                 .padding(16)
             }
-            .navigationTitle("VI Entitlement Probe")
+            .navigationTitle("VI Caller Probe")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -74,7 +74,7 @@ struct DiagnosticExportView: View {
                 isPresented: $isExporting,
                 document: DiagnosticTextDocument(text: report),
                 contentType: .plainText,
-                defaultFilename: "GestaltEdit-VI-Caller-Entitlement-Diagnostic"
+                defaultFilename: "GestaltEdit-iOS27-VI-Caller-Path-Diagnostic"
             ) { _ in }
         }
     }
@@ -83,7 +83,7 @@ struct DiagnosticExportView: View {
         guard !isWorking else { return }
         isWorking = true
         copied = false
-        report = CallerEntitlementProbe.generateReport()
+        report = ResolvedEntitlementProbe.generateReport()
         isWorking = false
     }
 }
