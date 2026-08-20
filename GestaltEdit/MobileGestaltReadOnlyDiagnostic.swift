@@ -82,7 +82,9 @@ private enum GMSCallerContextProbe {
         lines.append("")
         lines.append("Interpretation helper:")
         if let baseStatus = baseline.rawStatus {
-            let changed = [bundleOnly, processOnly, both].contains { $0.rawStatus != nil && $0.rawStatus != baseStatus }
+            let changed = [bundleOnly, processOnly, both].contains {
+                $0.rawStatus.map { $0 != baseStatus } ?? false
+            }
             lines.append("  ordinary caller-name spoof changed GM rawStatus = \(changed)")
         } else {
             lines.append("  baseline GM rawStatus unavailable")
@@ -282,7 +284,7 @@ private enum GMSCallerContextProbe {
 
     private static func withTemporaryBundleIdentifier<T>(_ value: String, _ body: () -> T) -> T {
         let selector = NSSelectorFromString("bundleIdentifier")
-        guard let method = class_getInstanceMethod(NSBundle.self, selector) else {
+        guard let method = class_getInstanceMethod(Bundle.self, selector) else {
             return body()
         }
         let original = method_getImplementation(method)
@@ -298,7 +300,7 @@ private enum GMSCallerContextProbe {
 
     private static func withTemporaryProcessName<T>(_ value: String, _ body: () -> T) -> T {
         let selector = NSSelectorFromString("processName")
-        guard let method = class_getInstanceMethod(NSProcessInfo.self, selector) else {
+        guard let method = class_getInstanceMethod(ProcessInfo.self, selector) else {
             return body()
         }
         let original = method_getImplementation(method)
