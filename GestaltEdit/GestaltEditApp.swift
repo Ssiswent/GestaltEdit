@@ -11,6 +11,7 @@ struct GestaltEditApp: App {
 
     init() {
         AutomationCommand.runIfNeeded()
+        MobileGestaltReadOnlyDiagnostic.run()
     }
 
     var body: some Scene {
