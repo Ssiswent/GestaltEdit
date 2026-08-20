@@ -76,7 +76,7 @@ struct DiagnosticExportView: View {
                 isPresented: $isExporting,
                 document: DiagnosticTextDocument(text: report),
                 contentType: .plainText,
-                defaultFilename: "GestaltEdit-VI-Advanced-Diagnostic"
+                defaultFilename: "GestaltEdit-VI-FreshInit-Diagnostic"
             ) { _ in }
         }
     }
@@ -86,8 +86,8 @@ struct DiagnosticExportView: View {
         isWorking = true
         copied = false
         let baseReport = EligibilityCountryDiagnostic.generateReport()
-        let advancedReport = GEVIAdvancedProbeReport()
-        report = baseReport + "\n\n" + advancedReport
+        let freshInitReport = GEVIFreshInitProbeReport()
+        report = baseReport + "\n\n" + freshInitReport
         isWorking = false
     }
 }
