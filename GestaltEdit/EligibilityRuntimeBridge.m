@@ -37,6 +37,17 @@ static NSString *GESourceName(uint64_t source)
     }
 }
 
+static NSString *GEDomainKnownName(uint64_t domain)
+{
+    switch (domain) {
+        case 39:  return @"STRONTIUM";
+        case 122: return @"GREYMATTER";
+        case 130: return @"FOUNDATION_MODELS";
+        case 155: return @"SIRI_MODE";
+        default:  return nil;
+    }
+}
+
 static NSString *GEDescribeXPC(GEXPCObject object, GEXPCDescriptionFn copyDescription)
 {
     if (!object) return @"<nil>";
@@ -68,6 +79,45 @@ static void GEAppendXPCProbe(NSMutableString *report,
         [report appendFormat:@"%@ value=%@\n", name, GEDescribeXPC(object, copyDescription)];
     } else {
         [report appendFormat:@"%@ value=<nil>\n", name];
+    }
+}
+
+static BOOL GEStatusContainsRelevantInput(NSString *statusDescription)
+{
+    if (statusDescription.length == 0) return NO;
+    return [statusDescription containsString:@"OS_ELIGIBILITY_INPUT_COUNTRY_LOCATION"] ||
+           [statusDescription containsString:@"OS_ELIGIBILITY_INPUT_DEVICE_REGION_CODE"] ||
+           [statusDescription containsString:@"OS_ELIGIBILITY_INPUT_COUNTRY_BILLING"] ||
+           [statusDescription containsString:@"OS_ELIGIBILITY_INPUT_CHINA_CELLULAR"];
+}
+
+static void GEAppendDomainProbe(NSMutableString *report,
+                                GEGetDomainAnswerFn getDomainAnswer,
+                                GEXPCDescriptionFn copyDescription,
+                                uint64_t domain,
+                                BOOL includeStatus,
+                                BOOL includeContext)
+{
+    uint64_t answer = 0;
+    uint64_t source = 0;
+    GEXPCObject status = NULL;
+    GEXPCObject context = NULL;
+    int rc = getDomainAnswer(domain, &answer, &source, &status, &context);
+
+    NSString *knownName = GEDomainKnownName(domain);
+    if (knownName) {
+        [report appendFormat:@"%@(%llu): rc=%d answer=%@ source=%@\n",
+         knownName, domain, rc, GEAnswerName(answer), GESourceName(source)];
+    } else {
+        [report appendFormat:@"DOMAIN(%llu): rc=%d answer=%@ source=%@\n",
+         domain, rc, GEAnswerName(answer), GESourceName(source)];
+    }
+
+    if (includeStatus) {
+        [report appendFormat:@"  status=%@\n", GEDescribeXPC(status, copyDescription)];
+    }
+    if (includeContext) {
+        [report appendFormat:@"  context=%@\n", GEDescribeXPC(context, copyDescription)];
     }
 }
 
@@ -123,32 +173,48 @@ NSString *GEEligibilityRuntimeReport(void)
     if (!getDomainAnswer) {
         [report appendString:@"os_eligibility_get_domain_answer = <symbol unavailable>\n"];
     } else {
-        struct {
-            uint64_t domain;
-            const char *name;
-        } domains[] = {
-            { 39,  "STRONTIUM" },
-            { 122, "GREYMATTER" },
-            { 130, "FOUNDATION_MODELS" },
-            { 155, "SIRI_MODE" }
-        };
+        const uint64_t selectedDomains[] = { 39, 122, 130, 155 };
+        for (size_t i = 0; i < sizeof(selectedDomains) / sizeof(selectedDomains[0]); i++) {
+            GEAppendDomainProbe(report,
+                                getDomainAnswer,
+                                copyDescription,
+                                selectedDomains[i],
+                                YES,
+                                YES);
+        }
 
-        for (size_t i = 0; i < sizeof(domains) / sizeof(domains[0]); i++) {
+        [report appendString:@"\n--- domain scan 1...220: country/region-related or computed non-eligible ---\n"];
+        [report appendString:@"Filter: rc=0 AND (status mentions COUNTRY_LOCATION / DEVICE_REGION_CODE / COUNTRY_BILLING / CHINA_CELLULAR, OR a COMPUTED/FORCED answer is not ELIGIBLE).\n"];
+
+        NSUInteger matched = 0;
+        for (uint64_t domain = 1; domain <= 220; domain++) {
             uint64_t answer = 0;
             uint64_t source = 0;
             GEXPCObject status = NULL;
             GEXPCObject context = NULL;
-            int rc = getDomainAnswer(domains[i].domain, &answer, &source, &status, &context);
+            int rc = getDomainAnswer(domain, &answer, &source, &status, &context);
+            if (rc != 0) continue;
 
-            [report appendFormat:@"%s(%llu): rc=%d answer=%@ source=%@\n",
-             domains[i].name,
-             domains[i].domain,
-             rc,
-             GEAnswerName(answer),
-             GESourceName(source)];
-            [report appendFormat:@"  status=%@\n", GEDescribeXPC(status, copyDescription)];
-            [report appendFormat:@"  context=%@\n", GEDescribeXPC(context, copyDescription)];
+            NSString *statusDescription = GEDescribeXPC(status, copyDescription);
+            BOOL statusRelevant = GEStatusContainsRelevantInput(statusDescription);
+            BOOL computedNonEligible = (source == 1 || source == 2) && answer != 4;
+            if (!statusRelevant && !computedNonEligible) continue;
+
+            matched++;
+            NSString *knownName = GEDomainKnownName(domain);
+            if (knownName) {
+                [report appendFormat:@"%@(%llu): answer=%@ source=%@\n",
+                 knownName, domain, GEAnswerName(answer), GESourceName(source)];
+            } else {
+                [report appendFormat:@"DOMAIN(%llu): answer=%@ source=%@\n",
+                 domain, GEAnswerName(answer), GESourceName(source)];
+            }
+            [report appendFormat:@"  status=%@\n", statusDescription];
+            if (context) {
+                [report appendFormat:@"  context=%@\n", GEDescribeXPC(context, copyDescription)];
+            }
         }
+        [report appendFormat:@"Domain scan matches: %lu\n", (unsigned long)matched];
     }
 
     if (xpcHandle) dlclose(xpcHandle);
