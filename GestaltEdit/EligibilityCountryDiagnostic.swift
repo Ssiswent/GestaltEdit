@@ -59,6 +59,9 @@ enum EligibilityCountryDiagnostic {
         lines.append(MobileGestaltReadOnlyDiagnostic.generateReport())
         lines.append("")
 
+        lines.append(GEEligibilityRuntimeReport())
+        lines.append("")
+
         for probe in probes {
             lines.append("--- \(probe.title) ---")
             lines.append("Path: \(probe.path)")
