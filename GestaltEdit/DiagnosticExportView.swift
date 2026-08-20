@@ -3,20 +3,22 @@ import UniformTypeIdentifiers
 import UIKit
 
 struct DiagnosticExportView: View {
-    @State private var report = "Reading MobileGestalt…"
+    @State private var report = "Running caller-context probe…"
     @State private var isExporting = false
     @State private var copied = false
-    @State private var showApplyConfirmation = false
-    @State private var showRevertConfirmation = false
-    @State private var operationMessage: String?
     @State private var isWorking = false
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        experimentalSection
+                    VStack(alignment: .leading, spacing: 12) {
+                        Label("GMS Caller Context Probe", systemImage: "checkmark.shield")
+                            .font(.headline)
+
+                        Text("Read-only diagnostic. It inspects the current app's GMS preferences/entitlements and performs short in-process identity getter overrides that are restored immediately. It does not write MobileGestalt, system preferences, or availability values.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
 
                         Divider()
 
@@ -58,7 +60,7 @@ struct DiagnosticExportView: View {
                 }
                 .padding(16)
             }
-            .navigationTitle("VI Diagnostic")
+            .navigationTitle("VI Caller Probe")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -67,124 +69,22 @@ struct DiagnosticExportView: View {
                     }
                 }
             }
-            .task {
-                refresh()
-            }
+            .task { refresh() }
             .fileExporter(
                 isPresented: $isExporting,
                 document: DiagnosticTextDocument(text: report),
                 contentType: .plainText,
-                defaultFilename: "GestaltEdit-MobileGestalt-Diagnostic"
+                defaultFilename: "GestaltEdit-GMS-Caller-Context-Diagnostic"
             ) { _ in }
-            .confirmationDialog(
-                "Apply experimental China SKU override?",
-                isPresented: $showApplyConfirmation,
-                titleVisibility: .visible
-            ) {
-                Button("Apply Override", role: .destructive) {
-                    applyOverride()
-                }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("This writes only two Boolean CacheExtra values: green-tea=false and not-green-tea=true. A MobileGestalt backup is created first. There is still a non-zero risk of system instability or failure to boot. The app will NOT reboot or respring automatically.")
-            }
-            .confirmationDialog(
-                "Remove China SKU override keys?",
-                isPresented: $showRevertConfirmation,
-                titleVisibility: .visible
-            ) {
-                Button("Remove Override Keys", role: .destructive) {
-                    revertOverride()
-                }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("This removes only the two experimental CacheExtra keys added by this build. A backup of the current MobileGestalt file is created first.")
-            }
-            .alert(
-                "China SKU Experiment",
-                isPresented: Binding(
-                    get: { operationMessage != nil },
-                    set: { if !$0 { operationMessage = nil } }
-                )
-            ) {
-                Button("OK") { operationMessage = nil }
-            } message: {
-                Text(operationMessage ?? "")
-            }
-        }
-    }
-
-    private var experimentalSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Experimental China SKU Override", systemImage: "exclamationmark.triangle.fill")
-                .font(.headline)
-                .foregroundStyle(.orange)
-
-            Text("For Camera Visual Intelligence diagnosis only. This attempts to override the Chinese-market MobileGestalt identity without changing ProductType, HardwareModel, CPUModel, RegionCode, RegionInfo, or CacheData.")
-                .font(.subheadline)
-
-            Text(ChinaSKUOverride.cacheExtraStateDescription())
-                .font(.system(.caption, design: .monospaced))
-                .foregroundStyle(.secondary)
-
-            HStack(spacing: 12) {
-                Button {
-                    showApplyConfirmation = true
-                } label: {
-                    Label("Apply Override", systemImage: "wrench.and.screwdriver")
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.orange)
-                .disabled(isWorking)
-
-                Button {
-                    showRevertConfirmation = true
-                } label: {
-                    Label("Revert", systemImage: "arrow.uturn.backward")
-                }
-                .buttonStyle(.bordered)
-                .disabled(isWorking)
-            }
-
-            Text("Safety behavior: automatic backup before every write, refuses to overwrite pre-existing values, verifies the written plist, and does not automatically reboot/respring. After a successful write, restart the iPhone yourself and then tap Refresh to check whether MGCopyAnswer changes.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
     }
 
     private func refresh() {
+        guard !isWorking else { return }
+        isWorking = true
         copied = false
         report = MobileGestaltReadOnlyDiagnostic.generateReport()
-    }
-
-    private func applyOverride() {
-        guard !isWorking else { return }
-        isWorking = true
-        defer { isWorking = false }
-
-        do {
-            let result = try ChinaSKUOverride.apply()
-            refresh()
-            operationMessage = result.message
-        } catch {
-            refresh()
-            operationMessage = "No reboot was performed. Operation failed: \(error.localizedDescription)"
-        }
-    }
-
-    private func revertOverride() {
-        guard !isWorking else { return }
-        isWorking = true
-        defer { isWorking = false }
-
-        do {
-            let result = try ChinaSKUOverride.revert()
-            refresh()
-            operationMessage = result.message
-        } catch {
-            refresh()
-            operationMessage = "Operation failed: \(error.localizedDescription)"
-        }
+        isWorking = false
     }
 }
 
