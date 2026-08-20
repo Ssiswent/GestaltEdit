@@ -17,11 +17,13 @@ enum MobileGestaltReadOnlyDiagnostic {
 
         for key in [
             "ChinaCellular",
+            "green-tea",
             "RegionCode",
             "RegionInfo",
             "RegulatoryModelNumber",
             "ProductType",
-            "HardwareModel"
+            "HardwareModel",
+            "DeviceSupportsGenerativeModelSystems"
         ] {
             lines.append(answerLine(for: key))
         }
@@ -44,7 +46,12 @@ enum MobileGestaltReadOnlyDiagnostic {
             lines.append(cacheExtraLine(
                 cacheExtra,
                 key: "2xVt/Zm4gAkjGGVTZxO/Qw",
-                name: "ChinaCellular"
+                name: "ChinaCellular hash candidate"
+            ))
+            lines.append(cacheExtraLine(
+                cacheExtra,
+                key: "iyfxmLogGVIaH7aEgqwcIA",
+                name: "green-tea (Chinese-market device flag)"
             ))
             lines.append(cacheExtraLine(
                 cacheExtra,
@@ -53,13 +60,23 @@ enum MobileGestaltReadOnlyDiagnostic {
             ))
             lines.append(cacheExtraLine(
                 cacheExtra,
+                key: "zHeENZu+wbg7PUprwNwBWg",
+                name: "RegionInfo (standard hash)"
+            ))
+            lines.append(cacheExtraLine(
+                cacheExtra,
                 key: "yK+xavymRGZ3xWc1tb8XDg",
-                name: "RegionInfo"
+                name: "GestaltEdit iOS 27 region override key"
             ))
             lines.append(cacheExtraLine(
                 cacheExtra,
                 key: "97JDvERpVwO+GHtthIh7hA",
                 name: "RegulatoryModelNumber"
+            ))
+            lines.append(cacheExtraLine(
+                cacheExtra,
+                key: "A62OafQ85EJAiiqKn4agtg",
+                name: "DeviceSupportsGenerativeModelSystems"
             ))
         } catch {
             lines.append("CacheExtra read failed: \(error.localizedDescription)")
