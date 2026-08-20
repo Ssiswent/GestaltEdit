@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 import UIKit
 
 struct DiagnosticExportView: View {
-    @State private var report = "Running crash-safe GMS/VK probe…"
+    @State private var report = "Running caller entitlement differential probe…"
     @State private var isExporting = false
     @State private var copied = false
     @State private var isWorking = false
@@ -13,10 +13,10 @@ struct DiagnosticExportView: View {
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        Label("GMS / VK Safe Probe", systemImage: "checkmark.shield")
+                        Label("Caller Entitlement Probe", systemImage: "doc.text.magnifyingglass")
                             .font(.headline)
 
-                        Text("Read-only diagnostic. This build removes the previous NSBundle/ProcessInfo method swizzling entirely. It only reads MobileGestalt, GMS/VisionKit availability getters, and GMS preference values visible to this app.")
+                        Text("Crash-safe, read-only diagnostic. It only reads code-signature entitlement blobs from this app and selected Apple system executables. No method swizzling, XPC connection, availability setter, preference write, or MobileGestalt write is used.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
@@ -60,7 +60,7 @@ struct DiagnosticExportView: View {
                 }
                 .padding(16)
             }
-            .navigationTitle("VI Safe Probe")
+            .navigationTitle("VI Entitlement Probe")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -74,7 +74,7 @@ struct DiagnosticExportView: View {
                 isPresented: $isExporting,
                 document: DiagnosticTextDocument(text: report),
                 contentType: .plainText,
-                defaultFilename: "GestaltEdit-GMS-VK-Safe-Diagnostic"
+                defaultFilename: "GestaltEdit-VI-Caller-Entitlement-Diagnostic"
             ) { _ in }
         }
     }
@@ -83,7 +83,7 @@ struct DiagnosticExportView: View {
         guard !isWorking else { return }
         isWorking = true
         copied = false
-        report = SafeGMSDiagnostic.generateReport()
+        report = CallerEntitlementProbe.generateReport()
         isWorking = false
     }
 }
