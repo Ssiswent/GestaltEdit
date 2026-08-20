@@ -166,3 +166,49 @@ BOOL BadQueryBridgeAvailable(void)
 }
 
 @end
+
+NSData *BadQueryReadDataAtPath(NSString *path, NSString **error)
+{
+    NSString *leaseError = nil;
+    BadQueryLease *lease = [BadQueryLease leaseForPath:path error:&leaseError];
+    if (!lease) {
+        if (error) *error = leaseError ?: @"failed to obtain read lease";
+        return nil;
+    }
+
+    NSError *readError = nil;
+    NSData *data = [NSData dataWithContentsOfFile:path
+                                         options:NSDataReadingMappedIfSafe
+                                           error:&readError];
+    [lease invalidate];
+
+    if (!data) {
+        if (error) *error = readError.localizedDescription ?: @"file read failed";
+        return nil;
+    }
+    if (error) *error = nil;
+    return data;
+}
+
+NSArray<NSString *> *BadQueryListDirectoryAtPath(NSString *path, NSString **error)
+{
+    NSString *leaseError = nil;
+    BadQueryLease *lease = [BadQueryLease leaseForPath:path error:&leaseError];
+    if (!lease) {
+        if (error) *error = leaseError ?: @"failed to obtain directory read lease";
+        return nil;
+    }
+
+    NSError *listError = nil;
+    NSArray<NSString *> *items = [[NSFileManager defaultManager]
+        contentsOfDirectoryAtPath:path
+                            error:&listError];
+    [lease invalidate];
+
+    if (!items) {
+        if (error) *error = listError.localizedDescription ?: @"directory listing failed";
+        return nil;
+    }
+    if (error) *error = nil;
+    return items;
+}
