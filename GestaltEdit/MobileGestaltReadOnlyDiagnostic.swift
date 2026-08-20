@@ -18,6 +18,7 @@ enum MobileGestaltReadOnlyDiagnostic {
         for key in [
             "ChinaCellular",
             "green-tea",
+            "not-green-tea",
             "RegionCode",
             "RegionInfo",
             "RegulatoryModelNumber",
@@ -52,6 +53,11 @@ enum MobileGestaltReadOnlyDiagnostic {
                 cacheExtra,
                 key: "iyfxmLogGVIaH7aEgqwcIA",
                 name: "green-tea (Chinese-market device flag)"
+            ))
+            lines.append(cacheExtraLine(
+                cacheExtra,
+                key: "4snMZS8LJkSctKypt2m+xA",
+                name: "not-green-tea (non-Chinese-market device flag)"
             ))
             lines.append(cacheExtraLine(
                 cacheExtra,
