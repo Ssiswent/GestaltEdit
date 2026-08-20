@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 import UIKit
 
 struct DiagnosticExportView: View {
-    @State private var report = "Running caller-context probe…"
+    @State private var report = "Running crash-safe GMS/VK probe…"
     @State private var isExporting = false
     @State private var copied = false
     @State private var isWorking = false
@@ -13,10 +13,10 @@ struct DiagnosticExportView: View {
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        Label("GMS Caller Context Probe", systemImage: "checkmark.shield")
+                        Label("GMS / VK Safe Probe", systemImage: "checkmark.shield")
                             .font(.headline)
 
-                        Text("Read-only diagnostic. It inspects the current app's GMS preferences/entitlements and performs short in-process identity getter overrides that are restored immediately. It does not write MobileGestalt, system preferences, or availability values.")
+                        Text("Read-only diagnostic. This build removes the previous NSBundle/ProcessInfo method swizzling entirely. It only reads MobileGestalt, GMS/VisionKit availability getters, and GMS preference values visible to this app.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
@@ -60,7 +60,7 @@ struct DiagnosticExportView: View {
                 }
                 .padding(16)
             }
-            .navigationTitle("VI Caller Probe")
+            .navigationTitle("VI Safe Probe")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -74,7 +74,7 @@ struct DiagnosticExportView: View {
                 isPresented: $isExporting,
                 document: DiagnosticTextDocument(text: report),
                 contentType: .plainText,
-                defaultFilename: "GestaltEdit-GMS-Caller-Context-Diagnostic"
+                defaultFilename: "GestaltEdit-GMS-VK-Safe-Diagnostic"
             ) { _ in }
         }
     }
@@ -83,7 +83,7 @@ struct DiagnosticExportView: View {
         guard !isWorking else { return }
         isWorking = true
         copied = false
-        report = MobileGestaltReadOnlyDiagnostic.generateReport()
+        report = SafeGMSDiagnostic.generateReport()
         isWorking = false
     }
 }
