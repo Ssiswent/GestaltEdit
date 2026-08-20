@@ -34,4 +34,13 @@ FOUNDATION_EXPORT NSArray<NSString *> * _Nullable BadQueryListDirectoryAtPath(
     NSString *path,
     NSString * _Nullable * _Nullable error);
 
+/// Read-only helper for stageable system apps. Acquires one temporary lease on
+/// `rootPath`, scans only its immediate UUID subdirectories for
+/// `<bundleDirectoryName>/<executableName>`, then releases the lease.
+FOUNDATION_EXPORT NSString * _Nullable BadQueryFindExecutableInImmediateSubdirectories(
+    NSString *rootPath,
+    NSString *bundleDirectoryName,
+    NSString *executableName,
+    NSString * _Nullable * _Nullable error);
+
 NS_ASSUME_NONNULL_END
