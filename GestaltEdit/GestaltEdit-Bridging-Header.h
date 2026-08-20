@@ -3,3 +3,4 @@
 //
 
 #import "GestaltAccess.h"
+#import "BadQueryBridge.h"
