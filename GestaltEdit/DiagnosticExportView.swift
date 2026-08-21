@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 import UIKit
 
 struct DiagnosticExportView: View {
-    @State private var report = "Tap Run to map VI China/region fields back to their real Swift owner types."
+    @State private var report = "Tap Run to compare VI GenerativeModels availability across languageOption values."
     @State private var isExporting = false
     @State private var copied = false
     @State private var isWorking = false
@@ -13,10 +13,10 @@ struct DiagnosticExportView: View {
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        Label("VI China Field Owner + RequestType", systemImage: "checkmark.shield")
+                        Label("VI GM Language Matrix", systemImage: "checkmark.shield")
                             .font(.headline)
 
-                        Text("Crash-safe read-only metadata probe. It maps isChinaRegion and related VI fields to their concrete Swift owner types, resolves 0x01/0x02 symbolic references across loaded images, and recovers the real requestType enum by matching descriptor owners. It does not invoke private VI getters, setters, preheat, XPC, or enum-taking APIs.")
+                        Text("Crash-safe read-only probe. GreymatterAvailability keys each entry by useCaseIdentifier plus languageOption, so this compares the same VI use cases across nil, English and Chinese BCP-47 language tags using only previously verified GMAvailabilityWrapper getters. No secure XPC or system writes are performed.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
@@ -58,13 +58,13 @@ struct DiagnosticExportView: View {
                 }
                 .padding(16)
             }
-            .navigationTitle("VI China Metadata")
+            .navigationTitle("VI Language Matrix")
             .navigationBarTitleDisplayMode(.inline)
             .fileExporter(
                 isPresented: $isExporting,
                 document: DiagnosticTextDocument(text: report),
                 contentType: .plainText,
-                defaultFilename: "GestaltEdit-iOS27-VI-ChinaFieldOwner-RequestType"
+                defaultFilename: "GestaltEdit-iOS27-VI-GM-LanguageMatrix"
             ) { _ in }
         }
     }
@@ -73,7 +73,7 @@ struct DiagnosticExportView: View {
         guard !isWorking else { return }
         isWorking = true
         copied = false
-        report = VIChinaMetadataGenerateReport()
+        report = GMSLanguageMatrixDiagnostic.generateReport()
         isWorking = false
     }
 }
