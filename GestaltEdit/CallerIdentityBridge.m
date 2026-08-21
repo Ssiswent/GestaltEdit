@@ -1,166 +1,50 @@
 #import "CallerIdentityBridge.h"
 
 #import <dlfcn.h>
-#import <mach-o/dyld.h>
-#import <mach-o/getsect.h>
 #import <objc/message.h>
 #import <objc/runtime.h>
 
-static NSString *TypeEncodingForClassMethod(Class cls, SEL sel) {
-    if (!cls || !sel) return @"<missing>";
-    Method m = class_getClassMethod(cls, sel);
-    if (!m) return @"<missing>";
-    const char *t = method_getTypeEncoding(m);
-    return t ? [NSString stringWithUTF8String:t] : @"<nil>";
-}
+static NSString *BoolString(BOOL v) { return v ? @"true" : @"false"; }
 
-static NSString *TypeEncodingForInstanceMethod(Class cls, SEL sel) {
-    if (!cls || !sel) return @"<missing>";
-    Method m = class_getInstanceMethod(cls, sel);
+static NSString *ClassMethodTypes(Class cls, SEL sel) {
+    Method m = cls ? class_getClassMethod(cls, sel) : NULL;
     if (!m) return @"<missing>";
     const char *t = method_getTypeEncoding(m);
     return t ? [NSString stringWithUTF8String:t] : @"<nil>";
 }
 
 static BOOL ClassMethodHasTypes(Class cls, SEL sel, const char *expected) {
-    Method m = class_getClassMethod(cls, sel);
+    Method m = cls ? class_getClassMethod(cls, sel) : NULL;
     if (!m) return NO;
     const char *t = method_getTypeEncoding(m);
     return t && expected && strcmp(t, expected) == 0;
 }
 
-static BOOL InstanceMethodHasTypes(Class cls, SEL sel, const char *expected) {
-    Method m = class_getInstanceMethod(cls, sel);
-    if (!m) return NO;
-    const char *t = method_getTypeEncoding(m);
-    return t && expected && strcmp(t, expected) == 0;
-}
-
-static void AppendClassSelector(NSMutableString *out, Class cls, NSString *name) {
+static void AppendClassMethod(NSMutableString *out, Class cls, NSString *name) {
     SEL sel = NSSelectorFromString(name);
-    Method m = class_getClassMethod(cls, sel);
-    [out appendFormat:@"  +%@ present=%@ types=%@\n",
-     name, m ? @"YES" : @"NO", m ? TypeEncodingForClassMethod(cls, sel) : @"<missing>"];
+    [out appendFormat:@"  +%@ types=%@\n", name, ClassMethodTypes(cls, sel)];
 }
 
-static void AppendInstanceSelector(NSMutableString *out, Class cls, NSString *name) {
-    SEL sel = NSSelectorFromString(name);
-    Method m = class_getInstanceMethod(cls, sel);
-    [out appendFormat:@"  -%@ present=%@ types=%@\n",
-     name, m ? @"YES" : @"NO", m ? TypeEncodingForInstanceMethod(cls, sel) : @"<missing>"];
-}
+static void AppendAllMetadataForClass(NSMutableString *out, Class cls) {
+    if (!cls) return;
+    NSString *name = NSStringFromClass(cls) ?: @"<unknown>";
+    Class superCls = class_getSuperclass(cls);
+    [out appendFormat:@"\nclass=%@\nsuperclass=%@\n", name,
+     superCls ? NSStringFromClass(superCls) : @"<nil>"];
 
-static NSString *BoolString(BOOL v) { return v ? @"true" : @"false"; }
-
-static BOOL StringMatchesProbeKeywords(NSString *s) {
-    if (!s.length) return NO;
-    NSString *l = s.lowercaseString;
-    NSArray<NSString *> *keys = @[
-        @"requesttype", @"request type", @"richanalysis", @"rich analysis",
-        @"vientry", @"entrytype", @"entry type", @"viewfinder", @"tamale",
-        @"camera", @"visualintelligence", @"visual intelligence", @"bundleidentifier",
-        @"bundle identifier", @"greymatter", @"china", @"country", @"region",
-        @"availability", @"enhancedsiri", @"enhanced siri"
-    ];
-    for (NSString *k in keys) if ([l containsString:k]) return YES;
-    return NO;
-}
-
-static NSArray<NSString *> *ExtractNulTerminatedStrings(const uint8_t *data, uint64_t size) {
-    if (!data || size == 0) return @[];
-    NSMutableArray<NSString *> *result = [NSMutableArray array];
-    uint64_t pos = 0;
-    while (pos < size) {
-        const uint8_t *start = data + pos;
-        const void *nul = memchr(start, 0, (size_t)(size - pos));
-        uint64_t len = nul ? (uint64_t)((const uint8_t *)nul - start) : (size - pos);
-        if (len > 0 && len <= 240) {
-            NSData *d = [NSData dataWithBytes:start length:(NSUInteger)len];
-            NSString *s = [[NSString alloc] initWithData:d encoding:NSUTF8StringEncoding];
-            if (s.length) {
-                NSUInteger printable = 0;
-                for (NSUInteger i = 0; i < s.length; i++) {
-                    unichar c = [s characterAtIndex:i];
-                    if ((c >= 0x20 && c < 0x7f) || c >= 0xa0) printable++;
-                }
-                if (printable * 10 >= s.length * 8) [result addObject:s];
-            }
-        }
-        if (!nul) break;
-        pos += len + 1;
+    unsigned int ic = 0;
+    Ivar *ivars = class_copyIvarList(cls, &ic);
+    [out appendFormat:@"ivars=%u\n", ic];
+    for (unsigned int i = 0; i < ic; i++) {
+        const char *n = ivar_getName(ivars[i]);
+        const char *t = ivar_getTypeEncoding(ivars[i]);
+        [out appendFormat:@"  ivar %s type=%s offset=%td\n",
+         n ?: "<nil>", t ?: "<nil>", ivar_getOffset(ivars[i])];
     }
-    return result;
-}
-
-static const struct mach_header_64 *LoadedHeaderContaining(NSString *needle) {
-    uint32_t count = _dyld_image_count();
-    for (uint32_t i = 0; i < count; i++) {
-        const char *name = _dyld_get_image_name(i);
-        if (!name) continue;
-        NSString *path = [NSString stringWithUTF8String:name];
-        if ([path containsString:needle]) {
-            const struct mach_header *h = _dyld_get_image_header(i);
-            if (h && h->magic == MH_MAGIC_64) return (const struct mach_header_64 *)h;
-        }
-    }
-    return NULL;
-}
-
-static void AppendSectionKeywordContext(NSMutableString *out,
-                                        NSString *imageNeedle,
-                                        const char *seg,
-                                        const char *sect) {
-    const struct mach_header_64 *h = LoadedHeaderContaining(imageNeedle);
-    [out appendFormat:@"\n--- %@ %s,%s string context ---\n", imageNeedle, seg, sect];
-    if (!h) {
-        [out appendString:@"image header not found\n"];
-        return;
-    }
-    unsigned long size = 0;
-    const uint8_t *bytes = getsectiondata(h, seg, sect, &size);
-    if (!bytes || size == 0) {
-        [out appendFormat:@"section unavailable size=%lu\n", size];
-        return;
-    }
-    NSArray<NSString *> *strings = ExtractNulTerminatedStrings(bytes, (uint64_t)size);
-    [out appendFormat:@"sectionSize=%lu parsedStrings=%lu\n", size, (unsigned long)strings.count];
-
-    NSMutableIndexSet *wanted = [NSMutableIndexSet indexSet];
-    NSUInteger directMatches = 0;
-    for (NSUInteger i = 0; i < strings.count; i++) {
-        if (!StringMatchesProbeKeywords(strings[i])) continue;
-        directMatches++;
-        NSUInteger lo = (i > 4) ? i - 4 : 0;
-        NSUInteger hi = MIN(strings.count - 1, i + 4);
-        [wanted addIndexesInRange:NSMakeRange(lo, hi - lo + 1)];
-        if (directMatches >= 80) break;
-    }
-    [out appendFormat:@"keywordMatches=%lu contextStrings=%lu\n",
-     (unsigned long)directMatches, (unsigned long)wanted.count];
-    __block NSUInteger emitted = 0;
-    [wanted enumerateIndexesUsingBlock:^(NSUInteger idx, BOOL *stop) {
-        if (emitted >= 360) { *stop = YES; return; }
-        NSString *mark = StringMatchesProbeKeywords(strings[idx]) ? @"*" : @" ";
-        [out appendFormat:@"%@ [%04lu] %@\n", mark, (unsigned long)idx, strings[idx]];
-        emitted++;
-    }];
-    if (wanted.count > emitted) [out appendFormat:@"... %lu context strings omitted\n", (unsigned long)(wanted.count - emitted)];
-}
-
-static void AppendRequestConfigMetadata(NSMutableString *out, Class configClass) {
-    [out appendString:@"\n--- VICVisualIntelligenceAnalysisRequestConfig metadata ---\n"];
-    if (!configClass) {
-        [out appendString:@"class missing\n"];
-        return;
-    }
-    AppendInstanceSelector(out, configClass, @"init");
-    AppendInstanceSelector(out, configClass, @"requestType");
-    AppendInstanceSelector(out, configClass, @"setRequestType:");
-    AppendInstanceSelector(out, configClass, @"environmentBundleIdentifier");
-    AppendInstanceSelector(out, configClass, @"vluAuthorized");
+    free(ivars);
 
     unsigned int pc = 0;
-    objc_property_t *props = class_copyPropertyList(configClass, &pc);
+    objc_property_t *props = class_copyPropertyList(cls, &pc);
     [out appendFormat:@"properties=%u\n", pc];
     for (unsigned int i = 0; i < pc; i++) {
         const char *n = property_getName(props[i]);
@@ -169,128 +53,164 @@ static void AppendRequestConfigMetadata(NSMutableString *out, Class configClass)
     }
     free(props);
 
-    unsigned int ic = 0;
-    Ivar *ivars = class_copyIvarList(configClass, &ic);
-    [out appendFormat:@"ivars=%u\n", ic];
-    for (unsigned int i = 0; i < ic; i++) {
-        const char *n = ivar_getName(ivars[i]);
-        const char *t = ivar_getTypeEncoding(ivars[i]);
-        [out appendFormat:@"  ivar %s type=%s offset=%td\n", n ?: "<nil>", t ?: "<nil>", ivar_getOffset(ivars[i])];
+    unsigned int mc = 0;
+    Method *methods = class_copyMethodList(cls, &mc);
+    [out appendFormat:@"instanceMethods=%u\n", mc];
+    for (unsigned int i = 0; i < mc; i++) {
+        SEL s = method_getName(methods[i]);
+        const char *t = method_getTypeEncoding(methods[i]);
+        [out appendFormat:@"  -%@ types=%s\n", NSStringFromSelector(s), t ?: "<nil>"];
     }
-    free(ivars);
+    free(methods);
+}
 
-    // A fresh config object's getters are safe to inspect; no setter is called.
-    if (InstanceMethodHasTypes(configClass, @selector(init), "@16@0:8")) {
-        id obj = ((id (*)(id, SEL))objc_msgSend)((id)configClass, @selector(alloc));
-        obj = ((id (*)(id, SEL))objc_msgSend)(obj, @selector(init));
-        [out appendFormat:@"freshConfig=%@\n", obj ?: @"<nil>"];
-        if (obj && InstanceMethodHasTypes(configClass, NSSelectorFromString(@"requestType"), "q16@0:8")) {
-            long long v = ((long long (*)(id, SEL))objc_msgSend)(obj, NSSelectorFromString(@"requestType"));
-            [out appendFormat:@"freshConfig.requestType(raw)=%lld\n", v];
-        } else if (obj && InstanceMethodHasTypes(configClass, NSSelectorFromString(@"requestType"), "Q16@0:8")) {
-            unsigned long long v = ((unsigned long long (*)(id, SEL))objc_msgSend)(obj, NSSelectorFromString(@"requestType"));
-            [out appendFormat:@"freshConfig.requestType(raw)=%llu\n", v];
+static void AppendGreymatterRuntimeMetadata(NSMutableString *out) {
+    [out appendString:@"\n--- VisualIntelligenceCore GreymatterAvailability runtime metadata ---\n"];
+    int count = objc_getClassList(NULL, 0);
+    if (count <= 0) {
+        [out appendString:@"objc_getClassList returned no classes\n"];
+        return;
+    }
+    Class *classes = (__unsafe_unretained Class *)calloc((size_t)count, sizeof(Class));
+    int actual = objc_getClassList(classes, count);
+    NSUInteger hits = 0;
+    for (int i = 0; i < actual; i++) {
+        Class cls = classes[i];
+        NSString *name = NSStringFromClass(cls);
+        if ([name containsString:@"GreymatterAvailability"]) {
+            hits++;
+            AppendAllMetadataForClass(out, cls);
         }
-        if (obj && InstanceMethodHasTypes(configClass, NSSelectorFromString(@"environmentBundleIdentifier"), "@16@0:8")) {
-            id v = ((id (*)(id, SEL))objc_msgSend)(obj, NSSelectorFromString(@"environmentBundleIdentifier"));
-            [out appendFormat:@"freshConfig.environmentBundleIdentifier=%@\n", v ?: @"<nil>"];
-        }
+    }
+    free(classes);
+    [out appendFormat:@"GreymatterAvailability-related classes=%lu\n", (unsigned long)hits];
+    [out appendString:@"NOTE: the previous device-local Swift reflection scan exposed fields named availability, partnerAvailability, hasAdditionalChinaPolicy, availabilityKey, useCaseIdentifier and languageOption. This section checks which of those fields are materialized as Objective-C-visible runtime storage on 24A5390f.\n"];
+}
+
+static void AppendGMSUseCase(NSMutableString *out, Class gm, NSString *useCase) {
+    [out appendFormat:@"useCase=%@\n", useCase];
+    NSArray *ids = @[useCase];
+    id language = nil;
+
+    SEL currentSel = NSSelectorFromString(@"currentWithUseCaseIdentifiers:language:");
+    if (ClassMethodHasTypes(gm, currentSel, "q32@0:8@16@24")) {
+        long long v = ((long long (*)(id, SEL, id, id))objc_msgSend)(gm, currentSel, ids, language);
+        [out appendFormat:@"  current.rawStatus=%lld\n", v];
+    }
+    SEL enabledSel = NSSelectorFromString(@"enabledWithUseCaseIdentifiers:language:");
+    if (ClassMethodHasTypes(gm, enabledSel, "B32@0:8@16@24")) {
+        BOOL v = ((BOOL (*)(id, SEL, id, id))objc_msgSend)(gm, enabledSel, ids, language);
+        [out appendFormat:@"  enabled=%@\n", BoolString(v)];
+    }
+    SEL partnerSel = NSSelectorFromString(@"useCasePartnerAllowedInUserLocaleRegionWithUseCaseIdentifiers:language:");
+    if (ClassMethodHasTypes(gm, partnerSel, "B32@0:8@16@24")) {
+        BOOL v = ((BOOL (*)(id, SEL, id, id))objc_msgSend)(gm, partnerSel, ids, language);
+        [out appendFormat:@"  partnerAllowedInUserLocaleRegion=%@\n", BoolString(v)];
+    }
+    SEL disabledSel = NSSelectorFromString(@"isUseCaseDisabledWithUseCaseIdentifiers:language:");
+    if (ClassMethodHasTypes(gm, disabledSel, "B32@0:8@16@24")) {
+        BOOL v = ((BOOL (*)(id, SEL, id, id))objc_msgSend)(gm, disabledSel, ids, language);
+        [out appendFormat:@"  useCaseDisabled=%@\n", BoolString(v)];
+    }
+    SEL assetSel = NSSelectorFromString(@"assetIsNotReadyWithUseCaseIdentifiers:language:");
+    if (ClassMethodHasTypes(gm, assetSel, "B32@0:8@16@24")) {
+        BOOL v = ((BOOL (*)(id, SEL, id, id))objc_msgSend)(gm, assetSel, ids, language);
+        [out appendFormat:@"  assetIsNotReady=%@\n", BoolString(v)];
     }
 }
 
 NSString *CallerIdentityGenerateReport(void) {
     NSMutableString *out = [NSMutableString string];
-    [out appendString:@"========== iOS 27 VI Request-Type CRASH-SAFE READ-ONLY Diagnostic ==========\n"];
+    [out appendString:@"========== iOS 27 VI VALID-REQUEST + CHINA-POLICY READ-ONLY Diagnostic ==========\n"];
     [out appendFormat:@"Generated: %@\n", [NSDate date]];
     [out appendFormat:@"OS: %@\n", NSProcessInfo.processInfo.operatingSystemVersionString];
     [out appendFormat:@"Process: %@ bundle=%@\n", NSProcessInfo.processInfo.processName,
      NSBundle.mainBundle.bundleIdentifier ?: @"<nil>"];
-    [out appendString:@"SAFETY: no call to +isRichAnalysisAvailableForRequestType:bundleID:. The previous build proved that probing arbitrary integer raw values can trigger Swift _diagnoseUnexpectedEnumCaseValue (SIGTRAP), which Objective-C @try cannot catch. This build uses only ABI-verified read-only getters, Objective-C metadata, and loaded Mach-O string-section inspection. No setters, preheat, XPC availability call, swizzling/IMP replacement, preference/MobileGestalt writes, respring or reboot.\n\n"];
+    [out appendString:@"SAFETY: read-only availability getters and Objective-C runtime metadata only. Request type 0 is used exclusively because the immediately preceding crash-safe probe proved that a fresh VICVisualIntelligenceAnalysisRequestConfig has requestType(raw)=0 and VKCImageAnalyzer.viEntryType(raw)=0 on this exact 24A5390f device. No arbitrary enum values are probed. No setters, preheat, swizzling/IMP replacement, preference/MobileGestalt writes, respring or reboot.\n\n"];
 
-    const char *vicPath = "/System/Library/PrivateFrameworks/VisualIntelligenceCore.framework/VisualIntelligenceCore";
-    const char *vkPath  = "/System/Library/PrivateFrameworks/VisionKitCore.framework/VisionKitCore";
-    void *vicHandle = dlopen(vicPath, RTLD_NOW | RTLD_LOCAL);
-    void *vkHandle = dlopen(vkPath, RTLD_NOW | RTLD_LOCAL);
-    [out appendFormat:@"VisualIntelligenceCore dlopen = %@\n", vicHandle ? @"OK" : @"FAIL"];
-    [out appendFormat:@"VisionKitCore dlopen = %@\n", vkHandle ? @"OK" : @"FAIL"];
+    void *vicHandle = dlopen("/System/Library/PrivateFrameworks/VisualIntelligenceCore.framework/VisualIntelligenceCore", RTLD_NOW | RTLD_LOCAL);
+    void *vkHandle = dlopen("/System/Library/PrivateFrameworks/VisionKitCore.framework/VisionKitCore", RTLD_NOW | RTLD_LOCAL);
+    void *gmHandle = dlopen("/System/Library/PrivateFrameworks/GenerativeModels.framework/GenerativeModels", RTLD_NOW | RTLD_LOCAL);
+    [out appendFormat:@"VisualIntelligenceCore dlopen=%@\n", vicHandle ? @"OK" : @"FAIL"];
+    [out appendFormat:@"VisionKitCore dlopen=%@\n", vkHandle ? @"OK" : @"FAIL"];
+    [out appendFormat:@"GenerativeModels dlopen=%@\n", gmHandle ? @"OK" : @"FAIL"];
 
     Class vic = NSClassFromString(@"VICVisualIntelligenceAnalyzer");
     Class vkc = NSClassFromString(@"VKCImageAnalyzer");
+    Class gm = NSClassFromString(@"GMAvailabilityWrapper");
     Class config = NSClassFromString(@"VICVisualIntelligenceAnalysisRequestConfig");
-    [out appendFormat:@"VICVisualIntelligenceAnalyzer = %@\n", vic ? @"FOUND" : @"MISSING"];
-    [out appendFormat:@"VKCImageAnalyzer = %@\n", vkc ? @"FOUND" : @"MISSING"];
-    [out appendFormat:@"VICVisualIntelligenceAnalysisRequestConfig = %@\n", config ? @"FOUND" : @"MISSING"];
 
-    [out appendString:@"\n--- exact selector inventory ---\n"];
-    if (vic) {
-        AppendClassSelector(out, vic, @"isRichAnalysisAvailableForRequestType:bundleID:");
-        AppendClassSelector(out, vic, @"shouldShowEnhancedSiri");
-        AppendClassSelector(out, vic, @"preheat");
-        AppendClassSelector(out, vic, @"preheatFor:environmentBundleIdentifier:");
-    }
-    if (vkc) {
-        AppendClassSelector(out, vkc, @"supportedAnalysisTypes");
-        AppendClassSelector(out, vkc, @"deviceIsEligibleForVI");
-        AppendClassSelector(out, vkc, @"isEnhancedSiriAvailable");
-        AppendClassSelector(out, vkc, @"isEnhancedSiriEnabled");
-        AppendClassSelector(out, vkc, @"shouldShowEnhancedSiri");
-        AppendClassSelector(out, vkc, @"viEntryType");
-        AppendClassSelector(out, vkc, @"setViEntryType:");
-        AppendClassSelector(out, vkc, @"viBundleIdentifier");
-        AppendClassSelector(out, vkc, @"setViBundleIdentifier:");
-    }
+    [out appendString:@"\n--- ABI verification ---\n"];
+    AppendClassMethod(out, vic, @"isRichAnalysisAvailableForRequestType:bundleID:");
+    AppendClassMethod(out, vkc, @"viEntryType");
+    AppendClassMethod(out, vkc, @"viBundleIdentifier");
+    AppendClassMethod(out, vkc, @"supportedAnalysisTypes");
+    AppendClassMethod(out, vkc, @"deviceIsEligibleForVI");
+    AppendClassMethod(out, gm, @"currentWithUseCaseIdentifiers:language:");
+    AppendClassMethod(out, gm, @"useCasePartnerAllowedInUserLocaleRegionWithUseCaseIdentifiers:language:");
 
-    [out appendString:@"\n--- VKCImageAnalyzer safe read-only baseline ---\n"];
-    if (vkc) {
-        if (ClassMethodHasTypes(vkc, NSSelectorFromString(@"supportedAnalysisTypes"), "Q16@0:8")) {
-            unsigned long long v = ((unsigned long long (*)(id, SEL))objc_msgSend)(vkc, NSSelectorFromString(@"supportedAnalysisTypes"));
-            [out appendFormat:@"supportedAnalysisTypes = %llu (0x%llx)\n", v, v];
-        }
-        if (ClassMethodHasTypes(vkc, NSSelectorFromString(@"deviceIsEligibleForVI"), "B16@0:8")) {
-            BOOL v = ((BOOL (*)(id, SEL))objc_msgSend)(vkc, NSSelectorFromString(@"deviceIsEligibleForVI"));
-            [out appendFormat:@"deviceIsEligibleForVI = %@\n", BoolString(v)];
-        }
-        if (ClassMethodHasTypes(vkc, NSSelectorFromString(@"isEnhancedSiriAvailable"), "B16@0:8")) {
-            BOOL v = ((BOOL (*)(id, SEL))objc_msgSend)(vkc, NSSelectorFromString(@"isEnhancedSiriAvailable"));
-            [out appendFormat:@"isEnhancedSiriAvailable = %@\n", BoolString(v)];
-        }
-        if (ClassMethodHasTypes(vkc, NSSelectorFromString(@"isEnhancedSiriEnabled"), "B16@0:8")) {
-            BOOL v = ((BOOL (*)(id, SEL))objc_msgSend)(vkc, NSSelectorFromString(@"isEnhancedSiriEnabled"));
-            [out appendFormat:@"isEnhancedSiriEnabled = %@\n", BoolString(v)];
-        }
-        if (ClassMethodHasTypes(vkc, NSSelectorFromString(@"shouldShowEnhancedSiri"), "B16@0:8")) {
-            BOOL v = ((BOOL (*)(id, SEL))objc_msgSend)(vkc, NSSelectorFromString(@"shouldShowEnhancedSiri"));
-            [out appendFormat:@"shouldShowEnhancedSiri = %@\n", BoolString(v)];
-        }
-        if (ClassMethodHasTypes(vkc, NSSelectorFromString(@"viEntryType"), "q16@0:8")) {
-            long long v = ((long long (*)(id, SEL))objc_msgSend)(vkc, NSSelectorFromString(@"viEntryType"));
-            [out appendFormat:@"viEntryType(raw) = %lld\n", v];
-        } else if (ClassMethodHasTypes(vkc, NSSelectorFromString(@"viEntryType"), "Q16@0:8")) {
-            unsigned long long v = ((unsigned long long (*)(id, SEL))objc_msgSend)(vkc, NSSelectorFromString(@"viEntryType"));
-            [out appendFormat:@"viEntryType(raw) = %llu\n", v];
-        } else {
-            [out appendFormat:@"viEntryType = SKIPPED ABI=%@\n", TypeEncodingForClassMethod(vkc, NSSelectorFromString(@"viEntryType"))];
-        }
-        if (ClassMethodHasTypes(vkc, NSSelectorFromString(@"viBundleIdentifier"), "@16@0:8")) {
-            id v = ((id (*)(id, SEL))objc_msgSend)(vkc, NSSelectorFromString(@"viBundleIdentifier"));
-            [out appendFormat:@"viBundleIdentifier = %@\n", v ?: @"<nil>"];
+    [out appendString:@"\n--- local baseline proving request type 0 remains the active/default type ---\n"];
+    if (vkc && ClassMethodHasTypes(vkc, NSSelectorFromString(@"viEntryType"), "Q16@0:8")) {
+        unsigned long long v = ((unsigned long long (*)(id, SEL))objc_msgSend)(vkc, NSSelectorFromString(@"viEntryType"));
+        [out appendFormat:@"VKCImageAnalyzer.viEntryType=%llu\n", v];
+    }
+    if (vkc && ClassMethodHasTypes(vkc, NSSelectorFromString(@"viBundleIdentifier"), "@16@0:8")) {
+        id v = ((id (*)(id, SEL))objc_msgSend)(vkc, NSSelectorFromString(@"viBundleIdentifier"));
+        [out appendFormat:@"VKCImageAnalyzer.viBundleIdentifier=%@\n", v ?: @"<nil>"];
+    }
+    if (config) {
+        id obj = ((id (*)(id, SEL))objc_msgSend)((id)config, @selector(alloc));
+        obj = ((id (*)(id, SEL))objc_msgSend)(obj, @selector(init));
+        Method m = class_getInstanceMethod(config, NSSelectorFromString(@"requestType"));
+        const char *t = m ? method_getTypeEncoding(m) : NULL;
+        if (obj && t && strcmp(t, "q16@0:8") == 0) {
+            long long v = ((long long (*)(id, SEL))objc_msgSend)(obj, NSSelectorFromString(@"requestType"));
+            [out appendFormat:@"freshConfig.requestType=%lld\n", v];
         }
     }
 
-    AppendRequestConfigMetadata(out, config);
-
-    if (vic && ClassMethodHasTypes(vic, NSSelectorFromString(@"shouldShowEnhancedSiri"), "B16@0:8")) {
-        BOOL v = ((BOOL (*)(id, SEL))objc_msgSend)(vic, NSSelectorFromString(@"shouldShowEnhancedSiri"));
-        [out appendFormat:@"\nVIC.shouldShowEnhancedSiri = %@\n", BoolString(v)];
+    [out appendString:@"\n--- VIC rich-analysis bundleID differential using ONLY validated requestType=0 ---\n"];
+    SEL richSel = NSSelectorFromString(@"isRichAnalysisAvailableForRequestType:bundleID:");
+    if (!vic || !ClassMethodHasTypes(vic, richSel, "B32@0:8q16@24")) {
+        [out appendFormat:@"SKIPPED: selector missing/ABI mismatch (%@)\n", ClassMethodTypes(vic, richSel)];
+    } else {
+        NSArray<NSString *> *bundleIDs = @[
+            NSBundle.mainBundle.bundleIdentifier ?: @"me.ssus.gestaltedit",
+            @"com.apple.camera",
+            @"com.apple.mobileslideshow",
+            @"com.apple.VisualIntelligenceCamera",
+            @"com.apple.VisualIntelligence",
+            @"com.apple.visualintelligenced",
+            @"com.apple.springboard"
+        ];
+        for (NSString *bundleID in bundleIDs) {
+            BOOL available = ((BOOL (*)(id, SEL, long long, id))objc_msgSend)(vic, richSel, 0LL, bundleID);
+            [out appendFormat:@"requestType=0 bundleID=%@ -> %@\n", bundleID, BoolString(available)];
+        }
     }
 
-    // Reflection/cstring inspection is deliberately used instead of calling the enum-consuming
-    // rich-analysis API with guessed raw values.
-    AppendSectionKeywordContext(out, @"VisualIntelligenceCore.framework", "__TEXT", "__swift5_reflstr");
-    AppendSectionKeywordContext(out, @"VisualIntelligenceCore.framework", "__TEXT", "__cstring");
-    AppendSectionKeywordContext(out, @"VisionKitCore.framework", "__TEXT", "__cstring");
+    [out appendString:@"\n--- GenerativeModels public-in-process policy decomposition ---\n"];
+    if (gm) {
+        NSArray<NSString *> *useCases = @[
+            @"VisualIntelligence.gvicc",
+            @"VisualIntelligence.vi_content_classifier",
+            @"GenerativeAssistant.visualIntelligenceCamera",
+            @"summarization.visualIntelligenceCamera",
+            @"com.apple.Settings.AppleIntelligence",
+            @"com.apple.VisualIntelligenceCamera.ImageSearch",
+            @"com.apple.VisualIntelligenceCamera.VisualLookup"
+        ];
+        for (NSString *useCase in useCases) AppendGMSUseCase(out, gm, useCase);
+    } else {
+        [out appendString:@"GMAvailabilityWrapper missing\n"];
+    }
 
-    [out appendString:@"\nIMPORTANT: +isRichAnalysisAvailableForRequestType:bundleID: was NOT invoked in this build. The previous SIGTRAP is now explained as a Swift enum raw-value trap rather than an Objective-C exception.\n"];
-    [out appendString:@"===============================================================================\n"];
+    AppendGreymatterRuntimeMetadata(out);
+
+    [out appendString:@"\n--- interpretation guardrails ---\n"];
+    [out appendString:@"1. A false result for com.apple.camera with requestType=0 while generic GM use cases remain available would directly demonstrate a bundle/environment-specific VisualIntelligenceCore gate.\n"];
+    [out appendString:@"2. A true result for com.apple.camera would mean the Camera failure occurs after this rich-analysis availability getter, or depends on caller process privileges/state not reproduced by merely supplying the Camera bundle identifier.\n"];
+    [out appendString:@"3. hasAdditionalChinaPolicy is treated as a discovered implementation field, not automatically as the proven failing predicate; this probe does not modify it.\n"];
+    [out appendString:@"====================================================================================\n"];
     return out;
 }
