@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 import UIKit
 
 struct DiagnosticExportView: View {
-    @State private var report = "Inspecting VI availability runtime metadata…"
+    @State private var report = "Running VI bundleID-aware availability differential…"
     @State private var isExporting = false
     @State private var copied = false
     @State private var isWorking = false
@@ -13,10 +13,10 @@ struct DiagnosticExportView: View {
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        Label("VI Availability Runtime Metadata", systemImage: "doc.text.magnifyingglass")
+                        Label("VI Rich-Analysis Differential", systemImage: "doc.text.magnifyingglass")
                             .font(.headline)
 
-                        Text("Read-only diagnostic. It loads GenerativeModels, VisionKitCore, VisualIntelligenceCore and VisualIntelligenceServices, then enumerates Objective-C class/method/property/ivar metadata related to availability, eligibility, region/country, Tamale and policy. It does not invoke availability methods or modify system state.")
+                        Text("Read-only diagnostic. It calls the ABI-verified VICVisualIntelligenceAnalyzer bundleID-aware availability getter across several entry/request types and Apple caller bundle identifiers. It does not call preheat, setters, swizzling, MobileGestalt writes, or system preference writes.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
@@ -56,7 +56,7 @@ struct DiagnosticExportView: View {
                 }
                 .padding(16)
             }
-            .navigationTitle("VI Runtime Metadata")
+            .navigationTitle("VI Differential")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -68,7 +68,7 @@ struct DiagnosticExportView: View {
                 isPresented: $isExporting,
                 document: DiagnosticTextDocument(text: report),
                 contentType: .plainText,
-                defaultFilename: "GestaltEdit-iOS27-VI-Availability-Runtime-Metadata"
+                defaultFilename: "GestaltEdit-iOS27-VI-RichAnalysis-BundleID-Differential"
             ) { _ in }
         }
     }
