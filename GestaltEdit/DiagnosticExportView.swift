@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 import UIKit
 
 struct DiagnosticExportView: View {
-    @State private var report = "Parsing VI Swift field metadata…"
+    @State private var report = "Resolving VI Swift symbolic references…"
     @State private var isExporting = false
     @State private var copied = false
     @State private var isWorking = false
@@ -13,10 +13,10 @@ struct DiagnosticExportView: View {
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        Label("VI Swift Field Metadata", systemImage: "doc.text.magnifyingglass")
+                        Label("VI Symbolic Ref Resolver", systemImage: "point.3.connected.trianglepath.dotted")
                             .font(.headline)
 
-                        Text("Crash-safe read-only diagnostic. The previous probe showed requestType 0 is false for every tested bundle ID, so this build stops guessing Swift enum raw values. It parses the loaded VisualIntelligenceCore/VisionKitCore Swift field metadata to recover the actual request/use-case/policy enum and struct layouts, including China-policy fields. No rich-analysis enum call, setters, preheat, swizzling, MobileGestalt writes, or system preference writes are used.")
+                        Text("Crash-safe read-only diagnostic. It resolves Swift reflection symbolic references to concrete type/context descriptors and enum case lists for requestType and GreymatterAvailability China-policy structures. It does not call the enum-taking rich-analysis availability API, setters, preheat, XPC, swizzling, MobileGestalt writes, or preference writes.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
@@ -56,7 +56,7 @@ struct DiagnosticExportView: View {
                 }
                 .padding(16)
             }
-            .navigationTitle("VI Metadata Probe")
+            .navigationTitle("VI Type Resolver")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -68,7 +68,7 @@ struct DiagnosticExportView: View {
                 isPresented: $isExporting,
                 document: DiagnosticTextDocument(text: report),
                 contentType: .plainText,
-                defaultFilename: "GestaltEdit-iOS27-VI-SwiftFieldMetadata"
+                defaultFilename: "GestaltEdit-iOS27-VI-SwiftSymbolicRefResolver"
             ) { _ in }
         }
     }
