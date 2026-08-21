@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 import UIKit
 
 struct DiagnosticExportView: View {
-    @State private var report = "Running VI bundleID-aware availability differential…"
+    @State private var report = "Running crash-safe VI request-type inspection…"
     @State private var isExporting = false
     @State private var copied = false
     @State private var isWorking = false
@@ -13,10 +13,10 @@ struct DiagnosticExportView: View {
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        Label("VI Rich-Analysis Differential", systemImage: "doc.text.magnifyingglass")
+                        Label("VI Request-Type Crash-Safe Probe", systemImage: "doc.text.magnifyingglass")
                             .font(.headline)
 
-                        Text("Read-only diagnostic. It calls the ABI-verified VICVisualIntelligenceAnalyzer bundleID-aware availability getter across several entry/request types and Apple caller bundle identifiers. It does not call preheat, setters, swizzling, MobileGestalt writes, or system preference writes.")
+                        Text("Read-only diagnostic. It does not call the enum-consuming isRichAnalysisAvailableForRequestType:bundleID: method. It reads ABI-verified VI getters and inspects Objective-C metadata plus loaded Mach-O reflection/cstring sections to identify the valid request/entry type without guessing raw enum values.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
@@ -56,7 +56,7 @@ struct DiagnosticExportView: View {
                 }
                 .padding(16)
             }
-            .navigationTitle("VI Differential")
+            .navigationTitle("VI Crash-Safe Probe")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -68,7 +68,7 @@ struct DiagnosticExportView: View {
                 isPresented: $isExporting,
                 document: DiagnosticTextDocument(text: report),
                 contentType: .plainText,
-                defaultFilename: "GestaltEdit-iOS27-VI-RichAnalysis-BundleID-Differential"
+                defaultFilename: "GestaltEdit-iOS27-VI-RequestType-CrashSafe"
             ) { _ in }
         }
     }
