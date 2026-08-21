@@ -12,3 +12,4 @@
 #import "VILSApplicationProxyProbe.h"
 #import "VICameraSiriPreflightXrefProbe.h"
 #import "VICameraSiriPreflightXrefSafeProbe.h"
+#import "VIPreheat5408Emulation.h"
