@@ -10,3 +10,4 @@
 #import "VICallerContextMetadataProbe.h"
 #import "VIProcessEntitlementProbe.h"
 #import "VILSApplicationProxyProbe.h"
+#import "VICameraSiriPreflightXrefProbe.h"
