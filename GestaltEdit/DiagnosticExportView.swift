@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 import UIKit
 
 struct DiagnosticExportView: View {
-    @State private var report = "Tap Run Metadata Probe. This build does not modify availability or attempt to launch Camera; it only maps the in-process VisionKitCore / VisualIntelligenceCore / GenerativeModels surfaces that could explain Camera's caller-specific AIAvailability=NO result."
+    @State private var report = "Open Camera once, return here without force-quitting it, then tap Run Process Probe. For Tamale/Visual Intelligence, invoke it once, return here, and run again. This build performs read-only process/code-signing queries only."
     @State private var isExporting = false
     @State private var copied = false
     @State private var isWorking = false
@@ -13,10 +13,10 @@ struct DiagnosticExportView: View {
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        Label("VI Caller Context / AIAvailability", systemImage: "scope")
+                        Label("VI Live Process Entitlements", systemImage: "signature")
                             .font(.headline)
 
-                        Text("The direct Camera-Control cache-refresh experiment did not change Camera behavior, while the system-wide GenerativeExperiences availability store is available. This probe therefore looks one layer deeper: it scans only mapped framework strings/reflection data and Objective-C runtime metadata for availability, caller, bundle, China/country/region/cellular, MobileGestalt, audit/entitlement and related surfaces. No private availability API is invoked.")
+                        Text("The previous file-based entitlement probe was blocked by ContainerManager for Camera/Tamale. This version avoids protected app-file reads and instead enumerates live/suspended processes, then asks the kernel for their code-signing status and entitlement blob via read-only csops queries. No task_for_pid or process-memory access is used.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
@@ -34,7 +34,7 @@ struct DiagnosticExportView: View {
 
                 HStack(spacing: 12) {
                     Button { runProbe() } label: {
-                        Label(isWorking ? "Running…" : "Run Metadata Probe", systemImage: "play.fill")
+                        Label(isWorking ? "Running…" : "Run Process Probe", systemImage: "play.fill")
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(isWorking)
@@ -58,13 +58,13 @@ struct DiagnosticExportView: View {
                 }
                 .padding(16)
             }
-            .navigationTitle("VI Caller Context")
+            .navigationTitle("VI Process Entitlements")
             .navigationBarTitleDisplayMode(.inline)
             .fileExporter(
                 isPresented: $isExporting,
                 document: DiagnosticTextDocument(text: report),
                 contentType: .plainText,
-                defaultFilename: "GestaltEdit-iOS27-VI-CallerContext-AIAvailability-Metadata"
+                defaultFilename: "GestaltEdit-iOS27-VI-Live-Process-Entitlements"
             ) { _ in }
         }
     }
@@ -73,7 +73,7 @@ struct DiagnosticExportView: View {
         guard !isWorking else { return }
         isWorking = true
         copied = false
-        report = VICallerContextMetadataGenerateReport()
+        report = VIProcessEntitlementGenerateReport()
         isWorking = false
     }
 }
