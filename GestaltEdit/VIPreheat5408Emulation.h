@@ -3,5 +3,7 @@
 NS_ASSUME_NONNULL_BEGIN
 
 FOUNDATION_EXPORT NSString *VIPreheat5408EmulationGenerateReport(void);
+FOUNDATION_EXPORT NSString *VIPreheat5408EmulationGenerateCameraReport(void);
+FOUNDATION_EXPORT NSString *VIPreheat5408EmulationGenerateVisualIntelligenceCameraReport(void);
 
 NS_ASSUME_NONNULL_END
