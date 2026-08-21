@@ -6,3 +6,4 @@
 #import "BadQueryBridge.h"
 #import "CallerIdentityBridge.h"
 #import "VIRequestContextProbe.h"
+#import "VIChinaMetadataProbe.h"
