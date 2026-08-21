@@ -1,234 +1,150 @@
 #import "CallerIdentityBridge.h"
 
 #import <dlfcn.h>
+#import <objc/message.h>
 #import <objc/runtime.h>
-#import <stdlib.h>
 
-static BOOL ContainsAny(NSString *value, NSArray<NSString *> *needles) {
-    if (!value.length) return NO;
-    NSString *s = value.lowercaseString;
-    for (NSString *needle in needles) {
-        if ([s containsString:needle.lowercaseString]) return YES;
-    }
-    return NO;
+static NSString *TypeEncodingForClassMethod(Class cls, SEL sel) {
+    if (!cls || !sel) return @"<missing>";
+    Method m = class_getClassMethod(cls, sel);
+    if (!m) return @"<missing>";
+    const char *t = method_getTypeEncoding(m);
+    return t ? [NSString stringWithUTF8String:t] : @"<nil>";
 }
 
-static NSString *CStringOrNil(const char *s) {
-    if (!s) return @"<nil>";
-    NSString *v = [NSString stringWithUTF8String:s];
-    return v ?: @"<invalid-utf8>";
+static BOOL ClassMethodHasTypes(Class cls, SEL sel, const char *expected) {
+    Method m = class_getClassMethod(cls, sel);
+    if (!m) return NO;
+    const char *t = method_getTypeEncoding(m);
+    return t && expected && strcmp(t, expected) == 0;
 }
 
-static NSArray<NSString *> *ClassKeywords(void) {
-    return @[
-        @"availability", @"available", @"eligibility", @"eligible", @"greymatter",
-        @"tamale", @"visualintelligence", @"visual intelligence", @"policy",
-        @"region", @"country", @"china", @"locale", @"usecase", @"use case",
-        @"feature", @"viewfinder", @"camera", @"gms", @"access"
-    ];
+static void AppendSelector(NSMutableString *out, Class cls, NSString *name) {
+    SEL sel = NSSelectorFromString(name);
+    Method m = class_getClassMethod(cls, sel);
+    [out appendFormat:@"  +%@ present=%@ types=%@\n",
+     name, m ? @"YES" : @"NO", m ? TypeEncodingForClassMethod(cls, sel) : @"<missing>"];
 }
 
-static NSArray<NSString *> *SelectorKeywords(void) {
-    return @[
-        @"availability", @"available", @"unavailable", @"reason", @"eligible",
-        @"eligibility", @"greymatter", @"tamale", @"region", @"country", @"china",
-        @"policy", @"locale", @"usecase", @"use case", @"partner", @"access",
-        @"enabled", @"support", @"preheat", @"feature", @"viewfinder", @"camera",
-        @"gms", @"asset", @"current", @"status"
-    ];
-}
-
-static BOOL IsTargetImage(NSString *image) {
-    if (!image.length) return NO;
-    NSArray *targets = @[
-        @"VisualIntelligenceCore.framework",
-        @"VisualIntelligenceServices.framework",
-        @"VisionKitCore.framework",
-        @"GenerativeModels.framework"
-    ];
-    return ContainsAny(image, targets);
-}
-
-static BOOL ClassHasInterestingMethod(Class cls) {
-    if (!cls) return NO;
-    NSArray *keywords = SelectorKeywords();
-    unsigned int count = 0;
-    Method *methods = class_copyMethodList(cls, &count);
-    BOOL hit = NO;
-    for (unsigned int i = 0; i < count; i++) {
-        NSString *name = NSStringFromSelector(method_getName(methods[i]));
-        if (ContainsAny(name, keywords)) { hit = YES; break; }
-    }
-    free(methods);
-    if (hit) return YES;
-
-    Class meta = object_getClass(cls);
-    count = 0;
-    methods = class_copyMethodList(meta, &count);
-    for (unsigned int i = 0; i < count; i++) {
-        NSString *name = NSStringFromSelector(method_getName(methods[i]));
-        if (ContainsAny(name, keywords)) { hit = YES; break; }
-    }
-    free(methods);
-    return hit;
-}
-
-static void AppendMethodList(NSMutableString *out, Class owner, NSString *label, BOOL dumpAll) {
-    unsigned int count = 0;
-    Method *methods = class_copyMethodList(owner, &count);
-    NSMutableArray<NSString *> *lines = [NSMutableArray array];
-    NSArray *keywords = SelectorKeywords();
-
-    for (unsigned int i = 0; i < count; i++) {
-        SEL sel = method_getName(methods[i]);
-        NSString *name = NSStringFromSelector(sel) ?: @"<unknown>";
-        if (!dumpAll && !ContainsAny(name, keywords)) continue;
-        const char *types = method_getTypeEncoding(methods[i]);
-        [lines addObject:[NSString stringWithFormat:@"%@  types=%@", name, CStringOrNil(types)]];
-    }
-    free(methods);
-
-    [lines sortUsingSelector:@selector(compare:)];
-    [out appendFormat:@"  %@ (%lu%@):\n", label, (unsigned long)lines.count,
-     (!dumpAll && lines.count < count) ? @" filtered" : @""];
-    NSUInteger cap = MIN((NSUInteger)120, lines.count);
-    for (NSUInteger i = 0; i < cap; i++) [out appendFormat:@"    %@\n", lines[i]];
-    if (lines.count > cap) [out appendFormat:@"    ... %lu more omitted\n", (unsigned long)(lines.count - cap)];
-}
-
-static void AppendProperties(NSMutableString *out, Class cls) {
-    unsigned int count = 0;
-    objc_property_t *props = class_copyPropertyList(cls, &count);
-    if (!props || count == 0) { free(props); return; }
-    NSMutableArray<NSString *> *lines = [NSMutableArray array];
-    for (unsigned int i = 0; i < count; i++) {
-        const char *name = property_getName(props[i]);
-        const char *attrs = property_getAttributes(props[i]);
-        NSString *n = CStringOrNil(name);
-        if (!ContainsAny(n, ClassKeywords()) && !ContainsAny(n, SelectorKeywords())) continue;
-        [lines addObject:[NSString stringWithFormat:@"%@ attrs=%@", n, CStringOrNil(attrs)]];
-    }
-    free(props);
-    [lines sortUsingSelector:@selector(compare:)];
-    if (!lines.count) return;
-    [out appendFormat:@"  interesting properties (%lu):\n", (unsigned long)lines.count];
-    for (NSString *line in lines) [out appendFormat:@"    %@\n", line];
-}
-
-static void AppendIvars(NSMutableString *out, Class cls) {
-    unsigned int count = 0;
-    Ivar *ivars = class_copyIvarList(cls, &count);
-    if (!ivars || count == 0) { free(ivars); return; }
-    NSMutableArray<NSString *> *lines = [NSMutableArray array];
-    for (unsigned int i = 0; i < count; i++) {
-        NSString *name = CStringOrNil(ivar_getName(ivars[i]));
-        if (!ContainsAny(name, ClassKeywords()) && !ContainsAny(name, SelectorKeywords())) continue;
-        [lines addObject:[NSString stringWithFormat:@"%@ type=%@ offset=%td",
-                          name, CStringOrNil(ivar_getTypeEncoding(ivars[i])), ivar_getOffset(ivars[i])]];
-    }
-    free(ivars);
-    [lines sortUsingSelector:@selector(compare:)];
-    if (!lines.count) return;
-    [out appendFormat:@"  interesting ivars (%lu):\n", (unsigned long)lines.count];
-    for (NSString *line in lines) [out appendFormat:@"    %@\n", line];
-}
-
-static void AppendClassDetail(NSMutableString *out, Class cls) {
-    NSString *name = NSStringFromClass(cls) ?: @"<unknown>";
-    NSString *image = CStringOrNil(class_getImageName(cls));
-    Class superclass = class_getSuperclass(cls);
-    NSString *superName = superclass ? (NSStringFromClass(superclass) ?: @"<unknown>") : @"<nil>";
-    BOOL nameInteresting = ContainsAny(name, ClassKeywords());
-
-    [out appendFormat:@"\n--- class %@ ---\n", name];
-    [out appendFormat:@"image=%@\n", image];
-    [out appendFormat:@"superclass=%@\n", superName];
-    [out appendFormat:@"nameKeywordMatch=%@\n", nameInteresting ? @"true" : @"false"];
-
-    AppendMethodList(out, cls, @"instance methods", nameInteresting);
-    AppendMethodList(out, object_getClass(cls), @"class methods", nameInteresting);
-    AppendProperties(out, cls);
-    AppendIvars(out, cls);
-}
+static NSString *BoolString(BOOL v) { return v ? @"true" : @"false"; }
 
 NSString *CallerIdentityGenerateReport(void) {
     NSMutableString *out = [NSMutableString string];
-    [out appendString:@"========== iOS 27 VI Availability Runtime Metadata READ-ONLY Diagnostic ==========\n"];
+    [out appendString:@"========== iOS 27 VI Rich-Analysis BundleID Differential READ-ONLY Diagnostic ==========\n"];
     [out appendFormat:@"Generated: %@\n", [NSDate date]];
     [out appendFormat:@"OS: %@\n", NSProcessInfo.processInfo.operatingSystemVersionString];
     [out appendFormat:@"Process: %@ bundle=%@\n", NSProcessInfo.processInfo.processName,
      NSBundle.mainBundle.bundleIdentifier ?: @"<nil>"];
-    [out appendString:@"SAFETY: Objective-C runtime metadata only. Frameworks are dlopen'ed and class/method/property/ivar metadata is enumerated. No availability getter is invoked, no XPC connection, no method swizzling/IMP replacement, no setters, no preference/MobileGestalt writes, no respring/reboot.\n"];
-    [out appendString:@"PURPOSE: previous probes proved LaunchServices/libproc/protected Camera code-signing paths are sandbox-blocked, while Camera itself logs a caller-context-specific VI denial. This probe identifies the private VI availability/policy classes and selectors so the next probe can call only ABI-verified read-only APIs.\n\n"];
+    [out appendString:@"SAFETY: read-only availability getters only. No setters, no preheat, no XPC service call made directly by this app, no method swizzling/IMP replacement, no preference/MobileGestalt writes, no respring/reboot. Every private selector is invoked only when its runtime type encoding matches the ABI observed on this exact device build.\n\n"];
 
-    NSArray<NSString *> *frameworks = @[
-        @"/System/Library/PrivateFrameworks/GenerativeModels.framework/GenerativeModels",
-        @"/System/Library/PrivateFrameworks/VisionKitCore.framework/VisionKitCore",
-        @"/System/Library/PrivateFrameworks/VisualIntelligenceCore.framework/VisualIntelligenceCore",
-        @"/System/Library/PrivateFrameworks/VisualIntelligenceServices.framework/VisualIntelligenceServices"
-    ];
+    const char *vicPath = "/System/Library/PrivateFrameworks/VisualIntelligenceCore.framework/VisualIntelligenceCore";
+    const char *vkPath  = "/System/Library/PrivateFrameworks/VisionKitCore.framework/VisionKitCore";
+    void *vicHandle = dlopen(vicPath, RTLD_NOW | RTLD_LOCAL);
+    void *vkHandle = dlopen(vkPath, RTLD_NOW | RTLD_LOCAL);
+    [out appendFormat:@"VisualIntelligenceCore dlopen = %@\n", vicHandle ? @"OK" : @"FAIL"];
+    [out appendFormat:@"VisionKitCore dlopen = %@\n", vkHandle ? @"OK" : @"FAIL"];
 
-    [out appendString:@"--- framework loads ---\n"];
-    for (NSString *path in frameworks) {
-        dlerror();
-        void *handle = dlopen(path.UTF8String, RTLD_NOW | RTLD_LOCAL);
-        const char *err = dlerror();
-        [out appendFormat:@"%@ -> %@", path.lastPathComponent, handle ? @"OK" : @"FAIL"];
-        if (!handle && err) [out appendFormat:@" (%@)", CStringOrNil(err)];
-        [out appendString:@"\n"];
+    Class vic = NSClassFromString(@"VICVisualIntelligenceAnalyzer");
+    Class vkc = NSClassFromString(@"VKCImageAnalyzer");
+    [out appendFormat:@"VICVisualIntelligenceAnalyzer = %@\n", vic ? @"FOUND" : @"MISSING"];
+    [out appendFormat:@"VKCImageAnalyzer = %@\n", vkc ? @"FOUND" : @"MISSING"];
+
+    [out appendString:@"\n--- exact selector inventory ---\n"];
+    if (vic) {
+        AppendSelector(out, vic, @"isRichAnalysisAvailableForRequestType:bundleID:");
+        AppendSelector(out, vic, @"shouldShowEnhancedSiri");
+        AppendSelector(out, vic, @"preheat");
+        AppendSelector(out, vic, @"preheatFor:environmentBundleIdentifier:");
+    }
+    if (vkc) {
+        AppendSelector(out, vkc, @"supportedAnalysisTypes");
+        AppendSelector(out, vkc, @"deviceIsEligibleForVI");
+        AppendSelector(out, vkc, @"isEnhancedSiriAvailable");
+        AppendSelector(out, vkc, @"isEnhancedSiriEnabled");
+        AppendSelector(out, vkc, @"shouldShowEnhancedSiri");
+        AppendSelector(out, vkc, @"viEntryType");
+        AppendSelector(out, vkc, @"setViEntryType:");
+        AppendSelector(out, vkc, @"viBundleIdentifier");
+        AppendSelector(out, vkc, @"setViBundleIdentifier:");
     }
 
-    unsigned int count = 0;
-    Class *classes = objc_copyClassList(&count);
-    NSMutableArray<NSDictionary *> *matches = [NSMutableArray array];
-    NSMutableDictionary<NSString *, NSNumber *> *imageCounts = [NSMutableDictionary dictionary];
-
-    for (unsigned int i = 0; i < count; i++) {
-        Class cls = classes[i];
-        NSString *image = CStringOrNil(class_getImageName(cls));
-        if (!IsTargetImage(image)) continue;
-        NSString *imageLeaf = image.lastPathComponent ?: image;
-        imageCounts[imageLeaf] = @([imageCounts[imageLeaf] unsignedIntegerValue] + 1);
-
-        NSString *name = NSStringFromClass(cls) ?: @"<unknown>";
-        BOOL nameHit = ContainsAny(name, ClassKeywords());
-        BOOL methodHit = ClassHasInterestingMethod(cls);
-        if (!nameHit && !methodHit) continue;
-        [matches addObject:@{@"class": cls, @"name": name, @"image": image, @"nameHit": @(nameHit), @"methodHit": @(methodHit)}];
+    [out appendString:@"\n--- VKCImageAnalyzer read-only baseline ---\n"];
+    if (vkc) {
+        if (ClassMethodHasTypes(vkc, NSSelectorFromString(@"supportedAnalysisTypes"), "Q16@0:8")) {
+            unsigned long long v = ((unsigned long long (*)(id, SEL))objc_msgSend)(vkc, NSSelectorFromString(@"supportedAnalysisTypes"));
+            [out appendFormat:@"supportedAnalysisTypes = %llu (0x%llx)\n", v, v];
+        }
+        if (ClassMethodHasTypes(vkc, NSSelectorFromString(@"deviceIsEligibleForVI"), "B16@0:8")) {
+            BOOL v = ((BOOL (*)(id, SEL))objc_msgSend)(vkc, NSSelectorFromString(@"deviceIsEligibleForVI"));
+            [out appendFormat:@"deviceIsEligibleForVI = %@\n", BoolString(v)];
+        }
+        if (ClassMethodHasTypes(vkc, NSSelectorFromString(@"isEnhancedSiriAvailable"), "B16@0:8")) {
+            BOOL v = ((BOOL (*)(id, SEL))objc_msgSend)(vkc, NSSelectorFromString(@"isEnhancedSiriAvailable"));
+            [out appendFormat:@"isEnhancedSiriAvailable = %@\n", BoolString(v)];
+        }
+        if (ClassMethodHasTypes(vkc, NSSelectorFromString(@"isEnhancedSiriEnabled"), "B16@0:8")) {
+            BOOL v = ((BOOL (*)(id, SEL))objc_msgSend)(vkc, NSSelectorFromString(@"isEnhancedSiriEnabled"));
+            [out appendFormat:@"isEnhancedSiriEnabled = %@\n", BoolString(v)];
+        }
+        if (ClassMethodHasTypes(vkc, NSSelectorFromString(@"shouldShowEnhancedSiri"), "B16@0:8")) {
+            BOOL v = ((BOOL (*)(id, SEL))objc_msgSend)(vkc, NSSelectorFromString(@"shouldShowEnhancedSiri"));
+            [out appendFormat:@"shouldShowEnhancedSiri = %@\n", BoolString(v)];
+        }
+        if (ClassMethodHasTypes(vkc, NSSelectorFromString(@"viEntryType"), "q16@0:8")) {
+            long long v = ((long long (*)(id, SEL))objc_msgSend)(vkc, NSSelectorFromString(@"viEntryType"));
+            [out appendFormat:@"viEntryType = %lld\n", v];
+        } else if (ClassMethodHasTypes(vkc, NSSelectorFromString(@"viEntryType"), "Q16@0:8")) {
+            unsigned long long v = ((unsigned long long (*)(id, SEL))objc_msgSend)(vkc, NSSelectorFromString(@"viEntryType"));
+            [out appendFormat:@"viEntryType = %llu\n", v];
+        }
+        if (ClassMethodHasTypes(vkc, NSSelectorFromString(@"viBundleIdentifier"), "@16@0:8")) {
+            id v = ((id (*)(id, SEL))objc_msgSend)(vkc, NSSelectorFromString(@"viBundleIdentifier"));
+            [out appendFormat:@"viBundleIdentifier = %@\n", v ?: @"<nil>"];
+        }
     }
-    free(classes);
 
-    [matches sortUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
-        NSString *ai = a[@"image"];
-        NSString *bi = b[@"image"];
-        NSComparisonResult r = [ai compare:bi];
-        if (r != NSOrderedSame) return r;
-        return [a[@"name"] compare:b[@"name"]];
-    }];
-
-    [out appendString:@"\n--- target framework Objective-C class counts ---\n"];
-    NSArray *sortedImages = [[imageCounts allKeys] sortedArrayUsingSelector:@selector(compare:)];
-    for (NSString *image in sortedImages) [out appendFormat:@"%@ = %@ classes\n", image, imageCounts[image]];
-    [out appendFormat:@"candidate classes = %lu\n", (unsigned long)matches.count];
-
-    [out appendString:@"\n--- candidate class index ---\n"];
-    NSUInteger indexCap = MIN((NSUInteger)300, matches.count);
-    for (NSUInteger i = 0; i < indexCap; i++) {
-        NSDictionary *item = matches[i];
-        [out appendFormat:@"[%03lu] %@ | %@ | nameHit=%@ methodHit=%@\n",
-         (unsigned long)(i + 1), item[@"name"], [item[@"image"] lastPathComponent],
-         [item[@"nameHit"] boolValue] ? @"Y" : @"N", [item[@"methodHit"] boolValue] ? @"Y" : @"N"];
+    [out appendString:@"\n--- VIC rich-analysis availability matrix ---\n"];
+    SEL richSel = NSSelectorFromString(@"isRichAnalysisAvailableForRequestType:bundleID:");
+    if (!vic || !ClassMethodHasTypes(vic, richSel, "B32@0:8q16@24")) {
+        [out appendFormat:@"SKIPPED: selector missing or ABI mismatch; observed types=%@\n", vic ? TypeEncodingForClassMethod(vic, richSel) : @"<class missing>"];
+    } else {
+        NSString *selfBundle = NSBundle.mainBundle.bundleIdentifier ?: @"me.ssus.gestaltedit";
+        NSArray *bundleIDs = @[
+            selfBundle,
+            @"com.apple.camera",
+            @"com.apple.Camera",
+            @"com.apple.springboard",
+            @"com.apple.visualintelligenced",
+            @"com.apple.ScreenshotServicesService",
+            @"com.apple.screenshotservices",
+            @"com.apple.mobileslideshow",
+            @"com.apple.Photos"
+        ];
+        long long requestTypes[] = {0, 1, 2, 3, 4, 5, 6, 7};
+        for (NSString *bundleID in bundleIDs) {
+            [out appendFormat:@"bundleID=%@\n", bundleID];
+            for (NSUInteger i = 0; i < sizeof(requestTypes)/sizeof(requestTypes[0]); i++) {
+                long long requestType = requestTypes[i];
+                BOOL available = NO;
+                @try {
+                    available = ((BOOL (*)(id, SEL, long long, id))objc_msgSend)(vic, richSel, requestType, bundleID);
+                    [out appendFormat:@"  requestType=%lld -> %@\n", requestType, BoolString(available)];
+                } @catch (NSException *e) {
+                    [out appendFormat:@"  requestType=%lld -> EXCEPTION %@: %@\n", requestType, e.name, e.reason ?: @"<nil>"];
+                }
+            }
+        }
     }
-    if (matches.count > indexCap) [out appendFormat:@"... %lu more candidates omitted from index\n", (unsigned long)(matches.count - indexCap)];
 
-    [out appendString:@"\n--- detailed runtime metadata ---\n"];
-    NSUInteger detailCap = MIN((NSUInteger)180, matches.count);
-    for (NSUInteger i = 0; i < detailCap; i++) {
-        Class cls = matches[i][@"class"];
-        AppendClassDetail(out, cls);
+    [out appendString:@"\n--- VIC global read-only baseline ---\n"];
+    if (vic && ClassMethodHasTypes(vic, NSSelectorFromString(@"shouldShowEnhancedSiri"), "B16@0:8")) {
+        BOOL v = ((BOOL (*)(id, SEL))objc_msgSend)(vic, NSSelectorFromString(@"shouldShowEnhancedSiri"));
+        [out appendFormat:@"VIC.shouldShowEnhancedSiri = %@\n", BoolString(v)];
+    } else {
+        [out appendString:@"VIC.shouldShowEnhancedSiri = <unavailable or ABI mismatch>\n"];
     }
-    if (matches.count > detailCap) [out appendFormat:@"\n... %lu candidate classes omitted from detailed section\n", (unsigned long)(matches.count - detailCap)];
 
-    [out appendString:@"\n===============================================================================\n"];
+    [out appendString:@"\nNOTE: preheat / preheatFor / setViEntryType / setViBundleIdentifier were intentionally NOT called. This build only compares the bundleID-aware availability getter that VisionKitCore itself calls on newer iOS 27 betas.\n"];
+    [out appendString:@"===============================================================================\n"];
     return out;
 }
