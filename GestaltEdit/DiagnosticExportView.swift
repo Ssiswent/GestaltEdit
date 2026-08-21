@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 import UIKit
 
 struct DiagnosticExportView: View {
-    @State private var report = "For the real VI entry path, do NOT open Camera first. For a clean cold-launch test, swipe Camera away from the app switcher, return here, tap Start 8s Test, then immediately long-press Camera Control to invoke Visual Intelligence directly."
+    @State private var report = "Tap Run Metadata Probe. This build does not modify availability or attempt to launch Camera; it only maps the in-process VisionKitCore / VisualIntelligenceCore / GenerativeModels surfaces that could explain Camera's caller-specific AIAvailability=NO result."
     @State private var isExporting = false
     @State private var copied = false
     @State private var isWorking = false
@@ -13,10 +13,10 @@ struct DiagnosticExportView: View {
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        Label("Direct Camera Control VI Cache Test", systemImage: "camera.aperture")
+                        Label("VI Caller Context / AIAvailability", systemImage: "scope")
                             .font(.headline)
 
-                        Text("Corrected for the actual user flow: Camera Visual Intelligence is invoked by long-pressing Camera Control directly. Native logs show Camera can compute AIAvailability before it registers the GMS Darwin observer during launch. This test therefore keeps GestaltEdit alive briefly in the background and repeats only the transient com.apple.gms.availability.notification for 8 seconds while Camera is launched by the hardware control. It does not write preferences, MobileGestalt, files, or availability values.")
+                        Text("The direct Camera-Control cache-refresh experiment did not change Camera behavior, while the system-wide GenerativeExperiences availability store is available. This probe therefore looks one layer deeper: it scans only mapped framework strings/reflection data and Objective-C runtime metadata for availability, caller, bundle, China/country/region/cellular, MobileGestalt, audit/entitlement and related surfaces. No private availability API is invoked.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
@@ -32,71 +32,49 @@ struct DiagnosticExportView: View {
 
                 Divider()
 
-                VStack(spacing: 10) {
-                    HStack(spacing: 12) {
-                        Button { runSnapshot() } label: {
-                            Label("Snapshot", systemImage: "doc.text.magnifyingglass")
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(isWorking)
-
-                        Button { runDirectTest() } label: {
-                            Label(isWorking ? "8s Window Active…" : "Start 8s Test", systemImage: "camera.fill")
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(isWorking)
+                HStack(spacing: 12) {
+                    Button { runProbe() } label: {
+                        Label(isWorking ? "Running…" : "Run Metadata Probe", systemImage: "play.fill")
                     }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isWorking)
 
-                    HStack(spacing: 12) {
-                        Button {
-                            UIPasteboard.general.string = report
-                            copied = true
-                        } label: {
-                            Label(copied ? "Copied" : "Copy", systemImage: "doc.on.doc")
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(isWorking)
-
-                        Spacer()
-
-                        Button { isExporting = true } label: {
-                            Label("Export TXT", systemImage: "square.and.arrow.up")
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(isWorking)
+                    Button {
+                        UIPasteboard.general.string = report
+                        copied = true
+                    } label: {
+                        Label(copied ? "Copied" : "Copy", systemImage: "doc.on.doc")
                     }
+                    .buttonStyle(.bordered)
+                    .disabled(isWorking)
+
+                    Spacer()
+
+                    Button { isExporting = true } label: {
+                        Label("Export TXT", systemImage: "square.and.arrow.up")
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isWorking)
                 }
                 .padding(16)
             }
-            .navigationTitle("Direct VI Test")
+            .navigationTitle("VI Caller Context")
             .navigationBarTitleDisplayMode(.inline)
             .fileExporter(
                 isPresented: $isExporting,
                 document: DiagnosticTextDocument(text: report),
                 contentType: .plainText,
-                defaultFilename: "GestaltEdit-iOS27-VI-DirectCameraControl-CacheRefresh"
+                defaultFilename: "GestaltEdit-iOS27-VI-CallerContext-AIAvailability-Metadata"
             ) { _ in }
         }
     }
 
-    private func runSnapshot() {
+    private func runProbe() {
         guard !isWorking else { return }
         isWorking = true
         copied = false
-        report = GMSCacheRefreshDiagnostic.snapshotReport()
+        report = VICallerContextMetadataGenerateReport()
         isWorking = false
-    }
-
-    private func runDirectTest() {
-        guard !isWorking else { return }
-        isWorking = true
-        copied = false
-        report = GMSCacheRefreshDiagnostic.directCameraControlTestStartingReport()
-
-        GMSCacheRefreshDiagnostic.startDirectCameraControlRefreshWindow { completedReport in
-            report = completedReport
-            isWorking = false
-        }
     }
 }
 
