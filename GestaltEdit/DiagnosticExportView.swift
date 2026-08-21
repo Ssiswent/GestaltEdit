@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 import UIKit
 
 struct DiagnosticExportView: View {
-    @State private var report = "Tap Run LS Proxy Probe. This build does not enumerate processes or read protected app executables; it asks LaunchServices for the registered application proxy for Camera/Tamale/ScreenshotServicesService and, only if the current runtime exposes a read-only entitlements object getter with the expected ABI, reads it."
+    @State private var report = "Tap Run Preflight Xref. This build does not invoke Camera or any VI availability API. It maps the exact Siri-AI/Apple-Intelligence preflight strings added in 24A5390f back to ARM64 code references and function-start boundaries inside the currently loaded VisualIntelligenceCore image."
     @State private var isExporting = false
     @State private var copied = false
     @State private var isWorking = false
@@ -13,10 +13,10 @@ struct DiagnosticExportView: View {
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        Label("VI LaunchServices Proxy", systemImage: "app.badge.checkmark")
+                        Label("Camera Siri-AI Preflight Xref", systemImage: "scope")
                             .font(.headline)
 
-                        Text("proc_listallpids is denied to the third-party sandbox on this device, and direct Camera.app reads are blocked by ContainerManager. This version instead resolves installed-system application records by bundle identifier through LSApplicationProxy. No process enumeration or filesystem escape is used.")
+                        Text("Exact-build IPSW diffs show that 24A5390f added Camera-specific Apple Intelligence/Siri-AI preflight strings to VisualIntelligenceCore while the Camera executable itself barely changed. This probe therefore resolves those exact strings to ARM64 ADR/ADRP references and LC_FUNCTION_STARTS boundaries, and lists only related Objective-C/Swift metadata. It performs no private availability calls.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
@@ -34,7 +34,7 @@ struct DiagnosticExportView: View {
 
                 HStack(spacing: 12) {
                     Button { runProbe() } label: {
-                        Label(isWorking ? "Running…" : "Run LS Proxy Probe", systemImage: "play.fill")
+                        Label(isWorking ? "Running…" : "Run Preflight Xref", systemImage: "play.fill")
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(isWorking)
@@ -58,13 +58,13 @@ struct DiagnosticExportView: View {
                 }
                 .padding(16)
             }
-            .navigationTitle("VI LS Proxy")
+            .navigationTitle("VI Preflight Xref")
             .navigationBarTitleDisplayMode(.inline)
             .fileExporter(
                 isPresented: $isExporting,
                 document: DiagnosticTextDocument(text: report),
                 contentType: .plainText,
-                defaultFilename: "GestaltEdit-iOS27-VI-LaunchServices-AppProxy"
+                defaultFilename: "GestaltEdit-iOS27-VI-Camera-SiriAI-Preflight-Xref"
             ) { _ in }
         }
     }
@@ -73,7 +73,7 @@ struct DiagnosticExportView: View {
         guard !isWorking else { return }
         isWorking = true
         copied = false
-        report = VILSApplicationProxyGenerateReport()
+        report = VICameraSiriPreflightXrefGenerateReport()
         isWorking = false
     }
 }
