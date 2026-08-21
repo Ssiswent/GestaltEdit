@@ -1,252 +1,233 @@
 #import "CallerIdentityBridge.h"
 
 #import <dlfcn.h>
-#import <objc/message.h>
 #import <objc/runtime.h>
 #import <stdlib.h>
 
-static id ObjMsg0(id obj, SEL sel) {
-    if (!obj || ![obj respondsToSelector:sel]) return nil;
-    return ((id (*)(id, SEL))objc_msgSend)(obj, sel);
-}
-
-static id ObjMsg1(id obj, SEL sel, id arg) {
-    if (!obj || ![obj respondsToSelector:sel]) return nil;
-    return ((id (*)(id, SEL, id))objc_msgSend)(obj, sel, arg);
-}
-
-static NSString *SafeDesc(id obj) {
-    if (!obj) return @"<nil>";
-    @try { return [obj description] ?: @"<nil-description>"; }
-    @catch (__unused NSException *e) { return @"<description threw>"; }
-}
-
-static BOOL InterestingKey(NSString *key) {
-    NSString *s = key.lowercaseString;
-    NSArray<NSString *> *words = @[@"generative", @"visual", @"intelligence", @"availability", @"camera", @"siri", @"eligibility", @"greymatter", @"region", @"country", @"mach-lookup", @"shared-preference", @"platform-application", @"private.security", @"assets"];
-    for (NSString *w in words) if ([s containsString:w]) return YES;
+static BOOL ContainsAny(NSString *value, NSArray<NSString *> *needles) {
+    if (!value.length) return NO;
+    NSString *s = value.lowercaseString;
+    for (NSString *needle in needles) {
+        if ([s containsString:needle.lowercaseString]) return YES;
+    }
     return NO;
 }
 
-static void AppendInterestingEntitlements(NSMutableString *out, NSDictionary *ent) {
-    if (![ent isKindOfClass:NSDictionary.class]) {
-        [out appendString:@"  entitlements = <unavailable>\n"];
-        return;
-    }
-    [out appendFormat:@"  entitlementCount = %lu\n", (unsigned long)ent.count];
-    NSArray *keys = [[ent allKeys] sortedArrayUsingSelector:@selector(compare:)];
-    NSUInteger hits = 0;
-    for (id k in keys) {
-        if (![k isKindOfClass:NSString.class] || !InterestingKey(k)) continue;
-        hits++;
-        [out appendFormat:@"    %@ = %@\n", k, SafeDesc(ent[k])];
-    }
-    [out appendFormat:@"  interestingKeyCount = %lu\n", (unsigned long)hits];
+static NSString *CStringOrNil(const char *s) {
+    if (!s) return @"<nil>";
+    NSString *v = [NSString stringWithUTF8String:s];
+    return v ?: @"<invalid-utf8>";
 }
 
-typedef int32_t OSStatus;
-typedef const struct __SecCode *SecStaticCodeRef;
-typedef OSStatus (*SecStaticCodeCreateWithPathFn)(CFURLRef, uint32_t, SecStaticCodeRef *);
-typedef OSStatus (*SecStaticCodeCreateWithPathAndAttributesFn)(CFURLRef, uint32_t, CFDictionaryRef, SecStaticCodeRef *);
-typedef OSStatus (*SecCodeCopySigningInformationFn)(SecStaticCodeRef, uint32_t, CFDictionaryRef *);
+static NSArray<NSString *> *ClassKeywords(void) {
+    return @[
+        @"availability", @"available", @"eligibility", @"eligible", @"greymatter",
+        @"tamale", @"visualintelligence", @"visual intelligence", @"policy",
+        @"region", @"country", @"china", @"locale", @"usecase", @"use case",
+        @"feature", @"viewfinder", @"camera", @"gms", @"access"
+    ];
+}
 
-static NSDictionary *SigningEntitlementsForURL(NSURL *url, NSMutableString *out) {
-    if (!url) return nil;
-    void *sec = dlopen("/System/Library/Frameworks/Security.framework/Security", RTLD_NOW | RTLD_LOCAL);
-    if (!sec) {
-        [out appendString:@"  Security dlopen = FAIL\n"];
-        return nil;
+static NSArray<NSString *> *SelectorKeywords(void) {
+    return @[
+        @"availability", @"available", @"unavailable", @"reason", @"eligible",
+        @"eligibility", @"greymatter", @"tamale", @"region", @"country", @"china",
+        @"policy", @"locale", @"usecase", @"use case", @"partner", @"access",
+        @"enabled", @"support", @"preheat", @"feature", @"viewfinder", @"camera",
+        @"gms", @"asset", @"current", @"status"
+    ];
+}
+
+static BOOL IsTargetImage(NSString *image) {
+    if (!image.length) return NO;
+    NSArray *targets = @[
+        @"VisualIntelligenceCore.framework",
+        @"VisualIntelligenceServices.framework",
+        @"VisionKitCore.framework",
+        @"GenerativeModels.framework"
+    ];
+    return ContainsAny(image, targets);
+}
+
+static BOOL ClassHasInterestingMethod(Class cls) {
+    if (!cls) return NO;
+    NSArray *keywords = SelectorKeywords();
+    unsigned int count = 0;
+    Method *methods = class_copyMethodList(cls, &count);
+    BOOL hit = NO;
+    for (unsigned int i = 0; i < count; i++) {
+        NSString *name = NSStringFromSelector(method_getName(methods[i]));
+        if (ContainsAny(name, keywords)) { hit = YES; break; }
     }
-    SecStaticCodeCreateWithPathFn create = (SecStaticCodeCreateWithPathFn)dlsym(sec, "SecStaticCodeCreateWithPath");
-    SecStaticCodeCreateWithPathAndAttributesFn createAttrs = (SecStaticCodeCreateWithPathAndAttributesFn)dlsym(sec, "SecStaticCodeCreateWithPathAndAttributes");
-    SecCodeCopySigningInformationFn copyInfo = (SecCodeCopySigningInformationFn)dlsym(sec, "SecCodeCopySigningInformation");
-    CFStringRef *entKeyPtr = (CFStringRef *)dlsym(sec, "kSecCodeInfoEntitlementsDict");
-    if ((!create && !createAttrs) || !copyInfo || !entKeyPtr || !*entKeyPtr) {
-        [out appendFormat:@"  Security symbols: create=%@ createAttrs=%@ copyInfo=%@ entKey=%@\n",
-         create ? @"YES" : @"NO", createAttrs ? @"YES" : @"NO", copyInfo ? @"YES" : @"NO", (entKeyPtr && *entKeyPtr) ? @"YES" : @"NO"];
-        return nil;
+    free(methods);
+    if (hit) return YES;
+
+    Class meta = object_getClass(cls);
+    count = 0;
+    methods = class_copyMethodList(meta, &count);
+    for (unsigned int i = 0; i < count; i++) {
+        NSString *name = NSStringFromSelector(method_getName(methods[i]));
+        if (ContainsAny(name, keywords)) { hit = YES; break; }
     }
+    free(methods);
+    return hit;
+}
 
-    SecStaticCodeRef code = NULL;
-    OSStatus rc = create ? create((__bridge CFURLRef)url, 0, &code) : createAttrs((__bridge CFURLRef)url, 0, NULL, &code);
-    [out appendFormat:@"  SecStaticCodeCreate rc=%d url=%@\n", (int)rc, url.path ?: url.absoluteString];
-    if (rc != 0 || !code) return nil;
+static void AppendMethodList(NSMutableString *out, Class owner, NSString *label, BOOL dumpAll) {
+    unsigned int count = 0;
+    Method *methods = class_copyMethodList(owner, &count);
+    NSMutableArray<NSString *> *lines = [NSMutableArray array];
+    NSArray *keywords = SelectorKeywords();
 
-    CFDictionaryRef info = NULL;
-    rc = copyInfo(code, (1u << 1), &info); // kSecCSSigningInformation
-    [out appendFormat:@"  SecCodeCopySigningInformation rc=%d\n", (int)rc];
-    NSDictionary *result = nil;
-    if (rc == 0 && info) {
-        NSDictionary *dict = (__bridge NSDictionary *)info;
-        id ent = dict[(__bridge NSString *)*entKeyPtr];
-        if ([ent isKindOfClass:NSDictionary.class]) result = [ent copy];
-        CFRelease(info);
+    for (unsigned int i = 0; i < count; i++) {
+        SEL sel = method_getName(methods[i]);
+        NSString *name = NSStringFromSelector(sel) ?: @"<unknown>";
+        if (!dumpAll && !ContainsAny(name, keywords)) continue;
+        const char *types = method_getTypeEncoding(methods[i]);
+        [lines addObject:[NSString stringWithFormat:@"%@  types=%@", name, CStringOrNil(types)]];
     }
-    CFRelease(code);
-    return result;
+    free(methods);
+
+    [lines sortUsingSelector:@selector(compare:)];
+    [out appendFormat:@"  %@ (%lu%@):\n", label, (unsigned long)lines.count,
+     (!dumpAll && lines.count < count) ? @" filtered" : @""];
+    NSUInteger cap = MIN((NSUInteger)120, lines.count);
+    for (NSUInteger i = 0; i < cap; i++) [out appendFormat:@"    %@\n", lines[i]];
+    if (lines.count > cap) [out appendFormat:@"    ... %lu more omitted\n", (unsigned long)(lines.count - cap)];
 }
 
-static NSArray *WorkspaceApplications(NSMutableString *out) {
-    dlopen("/System/Library/Frameworks/CoreServices.framework/CoreServices", RTLD_NOW | RTLD_LOCAL);
-    dlopen("/System/Library/Frameworks/MobileCoreServices.framework/MobileCoreServices", RTLD_NOW | RTLD_LOCAL);
-    Class wsClass = NSClassFromString(@"LSApplicationWorkspace");
-    [out appendFormat:@"LSApplicationWorkspace class = %@\n", wsClass ? @"FOUND" : @"MISSING"];
-    if (!wsClass) return @[];
-    id ws = ObjMsg0(wsClass, NSSelectorFromString(@"defaultWorkspace"));
-    if (!ws) return @[];
-    NSArray *apps = ObjMsg0(ws, NSSelectorFromString(@"allApplications"));
-    if (![apps isKindOfClass:NSArray.class]) apps = ObjMsg0(ws, NSSelectorFromString(@"allInstalledApplications"));
-    if (![apps isKindOfClass:NSArray.class]) return @[];
-    [out appendFormat:@"LaunchServices application count = %lu\n", (unsigned long)apps.count];
-    return apps;
-}
-
-static NSString *StringProperty(id obj, NSString *name) {
-    id v = ObjMsg0(obj, NSSelectorFromString(name));
-    if ([v isKindOfClass:NSString.class]) return v;
-    if ([v isKindOfClass:NSURL.class]) return [v path] ?: [v absoluteString];
-    return v ? SafeDesc(v) : nil;
-}
-
-static BOOL IsInterestingProxy(id proxy) {
-    NSString *bid = StringProperty(proxy, @"applicationIdentifier") ?: @"";
-    NSString *name = StringProperty(proxy, @"localizedName") ?: @"";
-    NSString *path = StringProperty(proxy, @"bundleURL") ?: @"";
-    NSString *all = [[NSString stringWithFormat:@"%@ %@ %@", bid, name, path] lowercaseString];
-    NSArray *needles = @[@"camera", @"tamale", @"screenshot", @"visualintelligence", @"visual intelligence"];
-    for (NSString *n in needles) if ([all containsString:n]) return YES;
-    return NO;
-}
-
-static void AppendProxy(NSMutableString *out, id proxy, NSString *label) {
-    [out appendFormat:@"\n--- %@ ---\n", label];
-    NSArray<NSString *> *props = @[@"applicationIdentifier", @"localizedName", @"applicationType", @"bundleURL", @"bundleExecutable", @"canonicalExecutablePath", @"bundleContainerURL", @"dataContainerURL", @"teamID"];
-    for (NSString *p in props) [out appendFormat:@"%@ = %@\n", p, StringProperty(proxy, p) ?: @"<nil>"];
-
-    if ([proxy respondsToSelector:NSSelectorFromString(@"entitlements")]) {
-        id ent = ObjMsg0(proxy, NSSelectorFromString(@"entitlements"));
-        [out appendString:@"LSApplicationProxy.entitlements selector present\n"];
-        AppendInterestingEntitlements(out, [ent isKindOfClass:NSDictionary.class] ? ent : nil);
-    } else {
-        [out appendString:@"LSApplicationProxy.entitlements selector = absent\n"];
+static void AppendProperties(NSMutableString *out, Class cls) {
+    unsigned int count = 0;
+    objc_property_t *props = class_copyPropertyList(cls, &count);
+    if (!props || count == 0) { free(props); return; }
+    NSMutableArray<NSString *> *lines = [NSMutableArray array];
+    for (unsigned int i = 0; i < count; i++) {
+        const char *name = property_getName(props[i]);
+        const char *attrs = property_getAttributes(props[i]);
+        NSString *n = CStringOrNil(name);
+        if (!ContainsAny(n, ClassKeywords()) && !ContainsAny(n, SelectorKeywords())) continue;
+        [lines addObject:[NSString stringWithFormat:@"%@ attrs=%@", n, CStringOrNil(attrs)]];
     }
+    free(props);
+    [lines sortUsingSelector:@selector(compare:)];
+    if (!lines.count) return;
+    [out appendFormat:@"  interesting properties (%lu):\n", (unsigned long)lines.count];
+    for (NSString *line in lines) [out appendFormat:@"    %@\n", line];
+}
 
-    NSURL *bundleURL = ObjMsg0(proxy, NSSelectorFromString(@"bundleURL"));
-    if ([bundleURL isKindOfClass:NSURL.class]) {
-        NSDictionary *ent = SigningEntitlementsForURL(bundleURL, out);
-        [out appendString:@"CodeSigning entitlements from bundleURL:\n"];
-        AppendInterestingEntitlements(out, ent);
+static void AppendIvars(NSMutableString *out, Class cls) {
+    unsigned int count = 0;
+    Ivar *ivars = class_copyIvarList(cls, &count);
+    if (!ivars || count == 0) { free(ivars); return; }
+    NSMutableArray<NSString *> *lines = [NSMutableArray array];
+    for (unsigned int i = 0; i < count; i++) {
+        NSString *name = CStringOrNil(ivar_getName(ivars[i]));
+        if (!ContainsAny(name, ClassKeywords()) && !ContainsAny(name, SelectorKeywords())) continue;
+        [lines addObject:[NSString stringWithFormat:@"%@ type=%@ offset=%td",
+                          name, CStringOrNil(ivar_getTypeEncoding(ivars[i])), ivar_getOffset(ivars[i])]];
     }
+    free(ivars);
+    [lines sortUsingSelector:@selector(compare:)];
+    if (!lines.count) return;
+    [out appendFormat:@"  interesting ivars (%lu):\n", (unsigned long)lines.count];
+    for (NSString *line in lines) [out appendFormat:@"    %@\n", line];
 }
 
-static void AppendSigningPath(NSMutableString *out, NSString *label, NSString *path) {
-    [out appendFormat:@"\n--- %@ ---\npath=%@\n", label, path];
-    BOOL exists = [[NSFileManager defaultManager] fileExistsAtPath:path];
-    [out appendFormat:@"FileManager.exists = %@\n", exists ? @"true" : @"false/hidden"];
-    NSDictionary *ent = SigningEntitlementsForURL([NSURL fileURLWithPath:path], out);
-    AppendInterestingEntitlements(out, ent);
-}
+static void AppendClassDetail(NSMutableString *out, Class cls) {
+    NSString *name = NSStringFromClass(cls) ?: @"<unknown>";
+    NSString *image = CStringOrNil(class_getImageName(cls));
+    Class superclass = class_getSuperclass(cls);
+    NSString *superName = superclass ? (NSStringFromClass(superclass) ?: @"<unknown>") : @"<nil>";
+    BOOL nameInteresting = ContainsAny(name, ClassKeywords());
 
-typedef int (*ProcListAllPidsFn)(void *, int);
-typedef int (*ProcNameFn)(int, void *, uint32_t);
-typedef int (*ProcPidPathFn)(int, void *, uint32_t);
+    [out appendFormat:@"\n--- class %@ ---\n", name];
+    [out appendFormat:@"image=%@\n", image];
+    [out appendFormat:@"superclass=%@\n", superName];
+    [out appendFormat:@"nameKeywordMatch=%@\n", nameInteresting ? @"true" : @"false"];
 
-static BOOL ProcessNameInteresting(NSString *name, NSString *path) {
-    NSString *s = [[NSString stringWithFormat:@"%@ %@", name ?: @"", path ?: @""] lowercaseString];
-    NSArray *needles = @[@"camera", @"tamale", @"screenshot", @"visualintelligence", @"generative", @"eligibilityd", @"countryd", @"springboard", @"gestaltedit"];
-    for (NSString *n in needles) if ([s containsString:n]) return YES;
-    return NO;
-}
-
-static void AppendProcessSnapshot(NSMutableString *out) {
-    [out appendString:@"\n--- libproc running-process path snapshot ---\n"];
-    void *lib = dlopen("/usr/lib/libproc.dylib", RTLD_NOW | RTLD_LOCAL);
-    if (!lib) lib = dlopen(NULL, RTLD_NOW | RTLD_LOCAL);
-    ProcListAllPidsFn listAll = (ProcListAllPidsFn)dlsym(lib ?: RTLD_DEFAULT, "proc_listallpids");
-    ProcNameFn procName = (ProcNameFn)dlsym(lib ?: RTLD_DEFAULT, "proc_name");
-    ProcPidPathFn procPath = (ProcPidPathFn)dlsym(lib ?: RTLD_DEFAULT, "proc_pidpath");
-    [out appendFormat:@"symbols: proc_listallpids=%@ proc_name=%@ proc_pidpath=%@\n", listAll ? @"YES" : @"NO", procName ? @"YES" : @"NO", procPath ? @"YES" : @"NO"];
-    if (!listAll || !procName || !procPath) return;
-
-    int estimated = listAll(NULL, 0);
-    [out appendFormat:@"proc_listallpids(NULL,0) = %d\n", estimated];
-    if (estimated <= 0 || estimated > 65536) return;
-    int capacity = estimated + 256;
-    int *pids = calloc((size_t)capacity, sizeof(int));
-    if (!pids) return;
-    int count = listAll(pids, capacity * (int)sizeof(int));
-    [out appendFormat:@"proc_listallpids(buffer) = %d\n", count];
-    if (count < 0) { free(pids); return; }
-    if (count > capacity) count = capacity;
-
-    NSUInteger interestingCount = 0;
-    NSUInteger pathReadableCount = 0;
-    for (int i = 0; i < count; i++) {
-        int pid = pids[i];
-        if (pid <= 0) continue;
-        char nameBuf[1024] = {0};
-        char pathBuf[4096] = {0};
-        int nrc = procName(pid, nameBuf, sizeof(nameBuf));
-        int prc = procPath(pid, pathBuf, sizeof(pathBuf));
-        NSString *name = nrc > 0 ? [NSString stringWithUTF8String:nameBuf] : @"";
-        NSString *path = prc > 0 ? [NSString stringWithUTF8String:pathBuf] : @"";
-        if (prc > 0) pathReadableCount++;
-        if (!ProcessNameInteresting(name, path)) continue;
-        interestingCount++;
-        [out appendFormat:@"pid=%d name=%@ nameRC=%d pathRC=%d path=%@\n", pid, name.length ? name : @"<unavailable>", nrc, prc, path.length ? path : @"<unavailable>"];
-        if (path.length) {
-            NSDictionary *ent = SigningEntitlementsForURL([NSURL fileURLWithPath:path], out);
-            AppendInterestingEntitlements(out, ent);
-        }
-    }
-    [out appendFormat:@"processes total=%d pathsReadable=%lu interesting=%lu\n", count, (unsigned long)pathReadableCount, (unsigned long)interestingCount];
-    free(pids);
+    AppendMethodList(out, cls, @"instance methods", nameInteresting);
+    AppendMethodList(out, object_getClass(cls), @"class methods", nameInteresting);
+    AppendProperties(out, cls);
+    AppendIvars(out, cls);
 }
 
 NSString *CallerIdentityGenerateReport(void) {
     NSMutableString *out = [NSMutableString string];
-    [out appendString:@"========== iOS 27 VI Protected CodeSigning + Process READ-ONLY Diagnostic ==========\n"];
+    [out appendString:@"========== iOS 27 VI Availability Runtime Metadata READ-ONLY Diagnostic ==========\n"];
     [out appendFormat:@"Generated: %@\n", [NSDate date]];
     [out appendFormat:@"OS: %@\n", NSProcessInfo.processInfo.operatingSystemVersionString];
-    [out appendFormat:@"Process: %@ bundle=%@\n", NSProcessInfo.processInfo.processName, NSBundle.mainBundle.bundleIdentifier ?: @"<nil>"];
-    [out appendString:@"SAFETY: read-only only. No GenerativeExperiences availability XPC call, no setters, no method swizzling/IMP replacement, no preference/MobileGestalt writes, no respring/reboot. Security code-signing inspection and libproc process/path queries only.\n"];
-    [out appendString:@"Exact 24A5390f IPSW diff confirms Camera executable candidate: /private/var/staged_system_apps/Camera.app/Camera. This probe asks Security.framework to inspect that path even when FileManager cannot read it.\n\n"];
+    [out appendFormat:@"Process: %@ bundle=%@\n", NSProcessInfo.processInfo.processName,
+     NSBundle.mainBundle.bundleIdentifier ?: @"<nil>"];
+    [out appendString:@"SAFETY: Objective-C runtime metadata only. Frameworks are dlopen'ed and class/method/property/ivar metadata is enumerated. No availability getter is invoked, no XPC connection, no method swizzling/IMP replacement, no setters, no preference/MobileGestalt writes, no respring/reboot.\n"];
+    [out appendString:@"PURPOSE: previous probes proved LaunchServices/libproc/protected Camera code-signing paths are sandbox-blocked, while Camera itself logs a caller-context-specific VI denial. This probe identifies the private VI availability/policy classes and selectors so the next probe can call only ABI-verified read-only APIs.\n\n"];
 
-    NSArray *apps = WorkspaceApplications(out);
-    NSMutableArray *interesting = [NSMutableArray array];
-    for (id proxy in apps) if (IsInterestingProxy(proxy)) [interesting addObject:proxy];
-    [out appendFormat:@"Interesting LaunchServices proxies = %lu\n", (unsigned long)interesting.count];
-    NSUInteger idx = 0;
-    for (id proxy in interesting) {
-        NSString *bid = StringProperty(proxy, @"applicationIdentifier") ?: @"<unknown>";
-        AppendProxy(out, proxy, [NSString stringWithFormat:@"LS match %lu: %@", (unsigned long)++idx, bid]);
-    }
-
-    Class proxyClass = NSClassFromString(@"LSApplicationProxy");
-    NSArray *explicitIDs = @[@"com.apple.camera", @"com.apple.Camera", @"com.apple.ScreenshotServicesService", @"com.apple.screenshotservices", @"com.apple.Tamale", @"com.apple.tamale"];
-    if (proxyClass) {
-        [out appendString:@"\n--- explicit LSApplicationProxy bundle-id lookups ---\n"];
-        for (NSString *bid in explicitIDs) {
-            id proxy = ObjMsg1(proxyClass, NSSelectorFromString(@"applicationProxyForIdentifier:"), bid);
-            [out appendFormat:@"%@ -> %@\n", bid, proxy ? SafeDesc(proxy) : @"<nil>"];
-            if (proxy) AppendProxy(out, proxy, [NSString stringWithFormat:@"explicit %@", bid]);
-        }
-    }
-
-    [out appendString:@"\n--- Security.framework protected-path attempts ---\n"];
-    NSArray<NSArray<NSString *> *> *targets = @[
-        @[@"Camera bundle", @"/private/var/staged_system_apps/Camera.app"],
-        @[@"Camera executable", @"/private/var/staged_system_apps/Camera.app/Camera"],
-        @[@"ScreenshotServicesService bundle", @"/Applications/ScreenshotServicesService.app"],
-        @[@"ScreenshotServicesService executable", @"/Applications/ScreenshotServicesService.app/ScreenshotServicesService"],
-        @[@"Tamale bundle", @"/Applications/Tamale.app"],
-        @[@"Tamale executable", @"/Applications/Tamale.app/Tamale"],
-        @[@"visualintelligenced", @"/System/Library/PrivateFrameworks/VisualIntelligenceServices.framework/visualintelligenced"],
-        @[@"SpringBoard", @"/System/Library/CoreServices/SpringBoard.app"]
+    NSArray<NSString *> *frameworks = @[
+        @"/System/Library/PrivateFrameworks/GenerativeModels.framework/GenerativeModels",
+        @"/System/Library/PrivateFrameworks/VisionKitCore.framework/VisionKitCore",
+        @"/System/Library/PrivateFrameworks/VisualIntelligenceCore.framework/VisualIntelligenceCore",
+        @"/System/Library/PrivateFrameworks/VisualIntelligenceServices.framework/VisualIntelligenceServices"
     ];
-    for (NSArray<NSString *> *target in targets) AppendSigningPath(out, target[0], target[1]);
 
-    AppendProcessSnapshot(out);
+    [out appendString:@"--- framework loads ---\n"];
+    for (NSString *path in frameworks) {
+        dlerror();
+        void *handle = dlopen(path.UTF8String, RTLD_NOW | RTLD_LOCAL);
+        const char *err = dlerror();
+        [out appendFormat:@"%@ -> %@", path.lastPathComponent, handle ? @"OK" : @"FAIL"];
+        if (!handle && err) [out appendFormat:@" (%@)", CStringOrNil(err)];
+        [out appendString:@"\n"];
+    }
+
+    unsigned int count = 0;
+    Class *classes = objc_copyClassList(&count);
+    NSMutableArray<NSDictionary *> *matches = [NSMutableArray array];
+    NSMutableDictionary<NSString *, NSNumber *> *imageCounts = [NSMutableDictionary dictionary];
+
+    for (unsigned int i = 0; i < count; i++) {
+        Class cls = classes[i];
+        NSString *image = CStringOrNil(class_getImageName(cls));
+        if (!IsTargetImage(image)) continue;
+        NSString *imageLeaf = image.lastPathComponent ?: image;
+        imageCounts[imageLeaf] = @([imageCounts[imageLeaf] unsignedIntegerValue] + 1);
+
+        NSString *name = NSStringFromClass(cls) ?: @"<unknown>";
+        BOOL nameHit = ContainsAny(name, ClassKeywords());
+        BOOL methodHit = ClassHasInterestingMethod(cls);
+        if (!nameHit && !methodHit) continue;
+        [matches addObject:@{@"class": cls, @"name": name, @"image": image, @"nameHit": @(nameHit), @"methodHit": @(methodHit)}];
+    }
+    free(classes);
+
+    [matches sortUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+        NSString *ai = a[@"image"];
+        NSString *bi = b[@"image"];
+        NSComparisonResult r = [ai compare:bi];
+        if (r != NSOrderedSame) return r;
+        return [a[@"name"] compare:b[@"name"]];
+    }];
+
+    [out appendString:@"\n--- target framework Objective-C class counts ---\n"];
+    NSArray *sortedImages = [[imageCounts allKeys] sortedArrayUsingSelector:@selector(compare:)];
+    for (NSString *image in sortedImages) [out appendFormat:@"%@ = %@ classes\n", image, imageCounts[image]];
+    [out appendFormat:@"candidate classes = %lu\n", (unsigned long)matches.count];
+
+    [out appendString:@"\n--- candidate class index ---\n"];
+    NSUInteger indexCap = MIN((NSUInteger)300, matches.count);
+    for (NSUInteger i = 0; i < indexCap; i++) {
+        NSDictionary *item = matches[i];
+        [out appendFormat:@"[%03lu] %@ | %@ | nameHit=%@ methodHit=%@\n",
+         (unsigned long)(i + 1), item[@"name"], [item[@"image"] lastPathComponent],
+         [item[@"nameHit"] boolValue] ? @"Y" : @"N", [item[@"methodHit"] boolValue] ? @"Y" : @"N"];
+    }
+    if (matches.count > indexCap) [out appendFormat:@"... %lu more candidates omitted from index\n", (unsigned long)(matches.count - indexCap)];
+
+    [out appendString:@"\n--- detailed runtime metadata ---\n"];
+    NSUInteger detailCap = MIN((NSUInteger)180, matches.count);
+    for (NSUInteger i = 0; i < detailCap; i++) {
+        Class cls = matches[i][@"class"];
+        AppendClassDetail(out, cls);
+    }
+    if (matches.count > detailCap) [out appendFormat:@"\n... %lu candidate classes omitted from detailed section\n", (unsigned long)(matches.count - detailCap)];
 
     [out appendString:@"\n===============================================================================\n"];
     return out;
