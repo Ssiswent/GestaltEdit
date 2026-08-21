@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 import UIKit
 
 struct DiagnosticExportView: View {
-    @State private var report = "Resolving LaunchServices caller identities…"
+    @State private var report = "Inspecting protected Camera signing paths and running processes…"
     @State private var isExporting = false
     @State private var copied = false
     @State private var isWorking = false
@@ -13,12 +13,21 @@ struct DiagnosticExportView: View {
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        Label("VI LaunchServices Probe", systemImage: "doc.text.magnifyingglass")
+                        Label("VI Protected Caller Probe", systemImage: "doc.text.magnifyingglass")
                             .font(.headline)
 
-                        Text("Read-only diagnostic. Uses LaunchServices metadata and code-signing inspection to resolve Camera / Tamale / ScreenshotServices paths even when direct directory reads are sandbox-hidden. It does not call the GenerativeExperiences availability service or modify system state.")
+                        Text("Read-only diagnostic. It asks Security.framework to inspect the exact iOS 27 Camera signing path even when FileManager cannot read it, and also queries libproc for running Camera/Tamale/VI process paths. No availability XPC call or system write is performed.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+
+                        Button {
+                            if let url = URL(string: "camera://") {
+                                UIApplication.shared.open(url)
+                            }
+                        } label: {
+                            Label("Open Camera, then return and Refresh", systemImage: "camera")
+                        }
+                        .buttonStyle(.bordered)
 
                         Divider()
 
@@ -56,7 +65,7 @@ struct DiagnosticExportView: View {
                 }
                 .padding(16)
             }
-            .navigationTitle("VI Caller Identity")
+            .navigationTitle("VI Caller Probe")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -68,7 +77,7 @@ struct DiagnosticExportView: View {
                 isPresented: $isExporting,
                 document: DiagnosticTextDocument(text: report),
                 contentType: .plainText,
-                defaultFilename: "GestaltEdit-iOS27-VI-LaunchServices-CodeSigning"
+                defaultFilename: "GestaltEdit-iOS27-VI-Protected-CodeSigning-Process"
             ) { _ in }
         }
     }
