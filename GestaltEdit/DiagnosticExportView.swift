@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 import UIKit
 
 struct DiagnosticExportView: View {
-    @State private var report = "Resolving current iOS 27 VI caller paths…"
+    @State private var report = "Resolving LaunchServices caller identities…"
     @State private var isExporting = false
     @State private var copied = false
     @State private var isWorking = false
@@ -13,10 +13,10 @@ struct DiagnosticExportView: View {
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        Label("VI Caller Path Probe", systemImage: "doc.text.magnifyingglass")
+                        Label("VI LaunchServices Probe", systemImage: "doc.text.magnifyingglass")
                             .font(.headline)
 
-                        Text("Read-only diagnostic. Resolves current Camera / visualintelligenced / Tamale / ScreenshotServicesService paths and compares their embedded code-signing entitlements. Protected file reads use temporary bad_query leases only; no availability XPC call or system write is performed.")
+                        Text("Read-only diagnostic. Uses LaunchServices metadata and code-signing inspection to resolve Camera / Tamale / ScreenshotServices paths even when direct directory reads are sandbox-hidden. It does not call the GenerativeExperiences availability service or modify system state.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
@@ -33,9 +33,7 @@ struct DiagnosticExportView: View {
                 Divider()
 
                 HStack(spacing: 12) {
-                    Button {
-                        refresh()
-                    } label: {
+                    Button { refresh() } label: {
                         Label("Refresh", systemImage: "arrow.clockwise")
                     }
                     .buttonStyle(.bordered)
@@ -51,22 +49,18 @@ struct DiagnosticExportView: View {
 
                     Spacer()
 
-                    Button {
-                        isExporting = true
-                    } label: {
+                    Button { isExporting = true } label: {
                         Label("Export TXT", systemImage: "square.and.arrow.up")
                     }
                     .buttonStyle(.borderedProminent)
                 }
                 .padding(16)
             }
-            .navigationTitle("VI Caller Probe")
+            .navigationTitle("VI Caller Identity")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    ShareLink(item: report) {
-                        Image(systemName: "square.and.arrow.up")
-                    }
+                    ShareLink(item: report) { Image(systemName: "square.and.arrow.up") }
                 }
             }
             .task { refresh() }
@@ -74,7 +68,7 @@ struct DiagnosticExportView: View {
                 isPresented: $isExporting,
                 document: DiagnosticTextDocument(text: report),
                 contentType: .plainText,
-                defaultFilename: "GestaltEdit-iOS27-VI-Caller-Path-Diagnostic"
+                defaultFilename: "GestaltEdit-iOS27-VI-LaunchServices-CodeSigning"
             ) { _ in }
         }
     }
@@ -83,29 +77,20 @@ struct DiagnosticExportView: View {
         guard !isWorking else { return }
         isWorking = true
         copied = false
-        report = ResolvedEntitlementProbe.generateReport()
+        report = CallerIdentityGenerateReport()
         isWorking = false
     }
 }
 
 private struct DiagnosticTextDocument: FileDocument {
     static var readableContentTypes: [UTType] { [.plainText] }
-
     var text: String
-
-    init(text: String) {
-        self.text = text
-    }
-
+    init(text: String) { self.text = text }
     init(configuration: ReadConfiguration) throws {
         if let data = configuration.file.regularFileContents,
-           let text = String(data: data, encoding: .utf8) {
-            self.text = text
-        } else {
-            self.text = ""
-        }
+           let text = String(data: data, encoding: .utf8) { self.text = text }
+        else { self.text = "" }
     }
-
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
         FileWrapper(regularFileWithContents: Data(text.utf8))
     }
