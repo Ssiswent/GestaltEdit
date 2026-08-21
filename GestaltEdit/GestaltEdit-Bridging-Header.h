@@ -4,3 +4,4 @@
 
 #import "GestaltAccess.h"
 #import "BadQueryBridge.h"
+#import "CallerIdentityBridge.h"
