@@ -31,10 +31,11 @@ enum GMSLanguageMatrixDiagnostic {
 
     static func generateReport() -> String {
         var lines: [String] = []
+        let bundleID = Bundle.main.bundleIdentifier ?? "<nil>"
         lines.append("========== iOS 27 VI GM LANGUAGE-OPTION MATRIX READ-ONLY Diagnostic ==========")
         lines.append("Generated: \(ISO8601DateFormatter().string(from: Date()))")
         lines.append("OS: \(ProcessInfo.processInfo.operatingSystemVersionString)")
-        lines.append("Process: \(ProcessInfo.processInfo.processName) bundle=\(Bundle.main.bundleIdentifier ?? \"<nil>\")")
+        lines.append("Process: \(ProcessInfo.processInfo.processName) bundle=\(bundleID)")
         lines.append("Locale.current=\(Locale.current.identifier)")
         lines.append("Locale.preferredLanguages=\(Locale.preferredLanguages.joined(separator: ", "))")
         lines.append("Bundle.preferredLocalizations=\(Bundle.main.preferredLocalizations.joined(separator: ", "))")
@@ -43,7 +44,8 @@ enum GMSLanguageMatrixDiagnostic {
 
         let path = "/System/Library/PrivateFrameworks/GenerativeModels.framework/GenerativeModels"
         let handle = dlopen(path, RTLD_NOW)
-        lines.append("GenerativeModels dlopen=\(handle == nil ? \"FAILED\" : \"OK\")")
+        let loadStatus = handle == nil ? "FAILED" : "OK"
+        lines.append("GenerativeModels dlopen=\(loadStatus)")
 
         guard let gmClass: AnyClass = NSClassFromString("GMAvailabilityWrapper") else {
             lines.append("GMAvailabilityWrapper=NOT FOUND")
