@@ -1,3 +1,4 @@
+import CoreFoundation
 import Darwin
 import Foundation
 import ObjectiveC.runtime
@@ -38,13 +39,13 @@ enum GMSCacheRefreshDiagnostic {
 
         lines.append("")
         lines.append("--- transient Darwin availability refresh signal ---")
-        let status: Int32 = notificationName.withCString { name in
-            notify_post(name)
-        }
-        lines.append("notify_post(\(notificationName)) status=\(status)")
+        let center = CFNotificationCenterGetDarwinNotifyCenter()
+        let name = CFNotificationName(rawValue: notificationName as CFString)
+        CFNotificationCenterPostNotification(center, name, nil, nil, true)
+        lines.append("CFNotificationCenterPostNotification(\(notificationName))=sent")
         lines.append("NOTE: this posts a transient notification only; it does not persist or write availability values.")
 
-        // Run off the main thread from the UI so observers have time to process the signal.
+        // Give in-process observers time to process the notification before re-reading state.
         Thread.sleep(forTimeInterval: 0.75)
 
         lines.append("")
