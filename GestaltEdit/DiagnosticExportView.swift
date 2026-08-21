@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 import UIKit
 
 struct DiagnosticExportView: View {
-    @State private var report = "Use Snapshot for a read-only baseline. For the cache experiment, leave Camera alive in the app switcher, return here, tap Broadcast Refresh, then immediately return to Camera and test Visual Intelligence."
+    @State private var report = "For the real VI entry path, do NOT open Camera first. For a clean cold-launch test, swipe Camera away from the app switcher, return here, tap Start 8s Test, then immediately long-press Camera Control to invoke Visual Intelligence directly."
     @State private var isExporting = false
     @State private var copied = false
     @State private var isWorking = false
@@ -13,10 +13,10 @@ struct DiagnosticExportView: View {
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        Label("VI GMS / VK Cache Refresh", systemImage: "arrow.clockwise.circle")
+                        Label("Direct Camera Control VI Cache Test", systemImage: "camera.aperture")
                             .font(.headline)
 
-                        Text("Targeted cache experiment based on native Camera logs: Camera reports com.apple.Settings.AppleIntelligence unavailable and then says it is returning a cached availability state, while other processes on the same device report the same use case as available. Snapshot is read-only. Broadcast Refresh only posts the transient Darwin notification already observed by GenerativeModels and VKCGMAvailability; it does not write preferences, MobileGestalt, files, or availability values.")
+                        Text("Corrected for the actual user flow: Camera Visual Intelligence is invoked by long-pressing Camera Control directly. Native logs show Camera can compute AIAvailability before it registers the GMS Darwin observer during launch. This test therefore keeps GestaltEdit alive briefly in the background and repeats only the transient com.apple.gms.availability.notification for 8 seconds while Camera is launched by the hardware control. It does not write preferences, MobileGestalt, files, or availability values.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
@@ -40,8 +40,8 @@ struct DiagnosticExportView: View {
                         .buttonStyle(.bordered)
                         .disabled(isWorking)
 
-                        Button { runBroadcast() } label: {
-                            Label(isWorking ? "Running…" : "Broadcast Refresh", systemImage: "arrow.clockwise")
+                        Button { runDirectTest() } label: {
+                            Label(isWorking ? "8s Window Active…" : "Start 8s Test", systemImage: "camera.fill")
                         }
                         .buttonStyle(.borderedProminent)
                         .disabled(isWorking)
@@ -68,13 +68,13 @@ struct DiagnosticExportView: View {
                 }
                 .padding(16)
             }
-            .navigationTitle("VI Cache Refresh")
+            .navigationTitle("Direct VI Test")
             .navigationBarTitleDisplayMode(.inline)
             .fileExporter(
                 isPresented: $isExporting,
                 document: DiagnosticTextDocument(text: report),
                 contentType: .plainText,
-                defaultFilename: "GestaltEdit-iOS27-VI-GMS-VK-CacheRefresh"
+                defaultFilename: "GestaltEdit-iOS27-VI-DirectCameraControl-CacheRefresh"
             ) { _ in }
         }
     }
@@ -87,12 +87,16 @@ struct DiagnosticExportView: View {
         isWorking = false
     }
 
-    private func runBroadcast() {
+    private func runDirectTest() {
         guard !isWorking else { return }
         isWorking = true
         copied = false
-        report = GMSCacheRefreshDiagnostic.broadcastAndMeasureReport()
-        isWorking = false
+        report = GMSCacheRefreshDiagnostic.directCameraControlTestStartingReport()
+
+        GMSCacheRefreshDiagnostic.startDirectCameraControlRefreshWindow { completedReport in
+            report = completedReport
+            isWorking = false
+        }
     }
 }
 
