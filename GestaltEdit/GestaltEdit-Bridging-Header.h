@@ -8,3 +8,4 @@
 #import "VIRequestContextProbe.h"
 #import "VIChinaMetadataProbe.h"
 #import "VICallerContextMetadataProbe.h"
+#import "VIProcessEntitlementProbe.h"
