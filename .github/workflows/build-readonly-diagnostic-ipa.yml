@@ -21,18 +21,24 @@ jobs:
         shell: bash
         run: |
           set +e
-          echo '=== locating VisualIntelligenceCore ==='
-          mapfile -t CANDIDATES < <(find /Applications /Library/Developer/CoreSimulator -type f -path '*/VisualIntelligenceCore.framework/VisualIntelligenceCore' 2>/dev/null | head -20)
-          printf '%s\n' "${CANDIDATES[@]}"
-          for BIN in "${CANDIDATES[@]}"; do
-            [ -f "$BIN" ] || continue
-            echo "=== FILE: $BIN ==="
-            file "$BIN" || true
-            echo '--- nm filtered ---'
-            nm -nm "$BIN" 2>/dev/null | grep -Ei 'GreymatterAvailability|AvailabilityState|UseCaseIdentifier|ChinaPolicy|ChinaRegion|preheat|PartnerImageSearch|visualIntelligenceCamera|gvicc' | head -500 || true
-            echo '--- strings filtered ---'
-            strings -a "$BIN" 2>/dev/null | grep -Ei 'GreymatterAvailability|hasAdditionalChinaPolicy|chinaPolicy|isChinaRegion|VisualIntelligence\.gvicc|visualIntelligenceCamera|currentIPCountryCode|availability state|preheated' | head -500 || true
-          done
+          echo '=== locating VI private frameworks ==='
+          find /Applications /Library/Developer/CoreSimulator -type f \
+            \( -path '*/VisualIntelligenceCore.framework/VisualIntelligenceCore' -o \
+               -path '*/VisionKitCore.framework/VisionKitCore' -o \
+               -path '*/GenerativeModels.framework/GenerativeModels' \) \
+            2>/dev/null | head -40 | while IFS= read -r BIN; do
+              [ -f "$BIN" ] || continue
+              echo "=== FILE: $BIN ==="
+              file "$BIN" || true
+              echo '--- nm filtered ---'
+              nm -nm "$BIN" 2>/dev/null | grep -Ei \
+                'GreymatterAvailability|AvailabilityState|AvailabilityKey|UseCaseIdentifier|hasAdditionalChinaPolicy|ChinaPolicy|ChinaRegion|PartnerImageSearch|visualIntelligenceCamera|gvicc|AIAvailability|VKCGMAvailability|deviceIsEligibleForVI|supportsVI|currentWithUseCaseIdentifiers|MobileGestalt|MGCopyAnswer|preheat' \
+                | head -1000 || true
+              echo '--- strings filtered ---'
+              strings -a "$BIN" 2>/dev/null | grep -Ei \
+                'GreymatterAvailability|AvailabilityState|AvailabilityKey|UseCaseIdentifier|hasAdditionalChinaPolicy|chinaPolicy|isChinaRegion|PartnerImageSearch|VisualIntelligence\.gvicc|visualIntelligenceCamera|gviccContentClassifier|currentIPCountryCode|AIAvailability|deviceIsEligibleForVI|supportsVI|currentWithUseCaseIdentifiers|MobileGestalt|MGCopyAnswer|preheated|com\.apple\.gms\.availability' \
+                | head -1200 || true
+            done
 
       - name: Build unsigned device app
         run: |
