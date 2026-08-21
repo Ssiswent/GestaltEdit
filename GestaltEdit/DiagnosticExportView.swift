@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 import UIKit
 
 struct DiagnosticExportView: View {
-    @State private var report = "Inspecting protected Camera signing paths and running processes…"
+    @State private var report = "Inspecting VI availability runtime metadata…"
     @State private var isExporting = false
     @State private var copied = false
     @State private var isWorking = false
@@ -13,21 +13,12 @@ struct DiagnosticExportView: View {
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        Label("VI Protected Caller Probe", systemImage: "doc.text.magnifyingglass")
+                        Label("VI Availability Runtime Metadata", systemImage: "doc.text.magnifyingglass")
                             .font(.headline)
 
-                        Text("Read-only diagnostic. It asks Security.framework to inspect the exact iOS 27 Camera signing path even when FileManager cannot read it, and also queries libproc for running Camera/Tamale/VI process paths. No availability XPC call or system write is performed.")
+                        Text("Read-only diagnostic. It loads GenerativeModels, VisionKitCore, VisualIntelligenceCore and VisualIntelligenceServices, then enumerates Objective-C class/method/property/ivar metadata related to availability, eligibility, region/country, Tamale and policy. It does not invoke availability methods or modify system state.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-
-                        Button {
-                            if let url = URL(string: "camera://") {
-                                UIApplication.shared.open(url)
-                            }
-                        } label: {
-                            Label("Open Camera, then return and Refresh", systemImage: "camera")
-                        }
-                        .buttonStyle(.bordered)
 
                         Divider()
 
@@ -65,7 +56,7 @@ struct DiagnosticExportView: View {
                 }
                 .padding(16)
             }
-            .navigationTitle("VI Caller Probe")
+            .navigationTitle("VI Runtime Metadata")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -77,7 +68,7 @@ struct DiagnosticExportView: View {
                 isPresented: $isExporting,
                 document: DiagnosticTextDocument(text: report),
                 contentType: .plainText,
-                defaultFilename: "GestaltEdit-iOS27-VI-Protected-CodeSigning-Process"
+                defaultFilename: "GestaltEdit-iOS27-VI-Availability-Runtime-Metadata"
             ) { _ in }
         }
     }
