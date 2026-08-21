@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 import UIKit
 
 struct DiagnosticExportView: View {
-    @State private var report = "Tap Run Preflight Xref. This build does not invoke Camera or any VI availability API. It maps the exact Siri-AI/Apple-Intelligence preflight strings added in 24A5390f back to ARM64 code references and function-start boundaries inside the currently loaded VisualIntelligenceCore image."
+    @State private var report = "Tap Run Preflight Xref. This crash-safe build does not invoke Camera or any VI availability API. It maps the exact Siri-AI/Apple-Intelligence preflight strings added in 24A5390f back to direct ARM64 ADR/ADRP+ADD references and function-start boundaries inside the currently loaded VisualIntelligenceCore image."
     @State private var isExporting = false
     @State private var copied = false
     @State private var isWorking = false
@@ -16,7 +16,7 @@ struct DiagnosticExportView: View {
                         Label("Camera Siri-AI Preflight Xref", systemImage: "scope")
                             .font(.headline)
 
-                        Text("Exact-build IPSW diffs show that 24A5390f added Camera-specific Apple Intelligence/Siri-AI preflight strings to VisualIntelligenceCore while the Camera executable itself barely changed. This probe therefore resolves those exact strings to ARM64 ADR/ADRP references and LC_FUNCTION_STARTS boundaries, and lists only related Objective-C/Swift metadata. It performs no private availability calls.")
+                        Text("Exact-build IPSW diffs show that 24A5390f added Camera-specific Apple Intelligence/Siri-AI preflight strings to VisualIntelligenceCore while the Camera executable itself barely changed. This final crash-safe probe resolves only direct ADR and ADRP+ADD string references plus LC_FUNCTION_STARTS and related runtime metadata. It intentionally does not dereference GOT/LDR pointer slots and performs no private availability calls.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
@@ -64,7 +64,7 @@ struct DiagnosticExportView: View {
                 isPresented: $isExporting,
                 document: DiagnosticTextDocument(text: report),
                 contentType: .plainText,
-                defaultFilename: "GestaltEdit-iOS27-VI-Camera-SiriAI-Preflight-Xref"
+                defaultFilename: "GestaltEdit-iOS27-VI-Camera-SiriAI-Preflight-Xref-CrashSafe"
             ) { _ in }
         }
     }
@@ -73,7 +73,7 @@ struct DiagnosticExportView: View {
         guard !isWorking else { return }
         isWorking = true
         copied = false
-        report = VICameraSiriPreflightXrefGenerateReport()
+        report = VICameraSiriPreflightXrefSafeGenerateReport()
         isWorking = false
     }
 }
