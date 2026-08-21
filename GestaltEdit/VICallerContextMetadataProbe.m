@@ -182,7 +182,8 @@ static void VIMetaRuntimeSurface(NSMutableString *out) {
 NSString *VICallerContextMetadataGenerateReport(void) {
     NSMutableString *out = [NSMutableString string];
     [out appendString:@"========== iOS 27 VI CALLER-CONTEXT / AIAVAILABILITY METADATA READ-ONLY Diagnostic ==========\n"];
-    [out appendFormat:@"Generated: %@\n", [NSISO8601DateFormatter new].stringFromDate([NSDate date])];
+    NSISO8601DateFormatter *formatter = [NSISO8601DateFormatter new];
+    [out appendFormat:@"Generated: %@\n", [formatter stringFromDate:[NSDate date]]];
     [out appendFormat:@"OS: %@\n", NSProcessInfo.processInfo.operatingSystemVersionString];
     [out appendFormat:@"Process: %@ bundle=%@\n", NSProcessInfo.processInfo.processName, NSBundle.mainBundle.bundleIdentifier ?: @"<nil>"];
     [out appendString:@"SAFETY: framework dlopen + mapped Mach-O string-section inspection + Objective-C runtime metadata enumeration only. No private availability getters/setters are invoked, no XPC, no swizzling/IMP replacement, no preferences/MobileGestalt/file writes, no sandbox-extension access, no respring/reboot.\n\n"];
