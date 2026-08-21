@@ -3,6 +3,7 @@
 #import <dlfcn.h>
 #import <objc/message.h>
 #import <objc/runtime.h>
+#import <stdlib.h>
 
 static id ObjMsg0(id obj, SEL sel) {
     if (!obj || ![obj respondsToSelector:sel]) return nil;
@@ -138,13 +139,78 @@ static void AppendProxy(NSMutableString *out, id proxy, NSString *label) {
     }
 }
 
+static void AppendSigningPath(NSMutableString *out, NSString *label, NSString *path) {
+    [out appendFormat:@"\n--- %@ ---\npath=%@\n", label, path];
+    BOOL exists = [[NSFileManager defaultManager] fileExistsAtPath:path];
+    [out appendFormat:@"FileManager.exists = %@\n", exists ? @"true" : @"false/hidden"];
+    NSDictionary *ent = SigningEntitlementsForURL([NSURL fileURLWithPath:path], out);
+    AppendInterestingEntitlements(out, ent);
+}
+
+typedef int (*ProcListAllPidsFn)(void *, int);
+typedef int (*ProcNameFn)(int, void *, uint32_t);
+typedef int (*ProcPidPathFn)(int, void *, uint32_t);
+
+static BOOL ProcessNameInteresting(NSString *name, NSString *path) {
+    NSString *s = [[NSString stringWithFormat:@"%@ %@", name ?: @"", path ?: @""] lowercaseString];
+    NSArray *needles = @[@"camera", @"tamale", @"screenshot", @"visualintelligence", @"generative", @"eligibilityd", @"countryd", @"springboard", @"gestaltedit"];
+    for (NSString *n in needles) if ([s containsString:n]) return YES;
+    return NO;
+}
+
+static void AppendProcessSnapshot(NSMutableString *out) {
+    [out appendString:@"\n--- libproc running-process path snapshot ---\n"];
+    void *lib = dlopen("/usr/lib/libproc.dylib", RTLD_NOW | RTLD_LOCAL);
+    if (!lib) lib = dlopen(NULL, RTLD_NOW | RTLD_LOCAL);
+    ProcListAllPidsFn listAll = (ProcListAllPidsFn)dlsym(lib ?: RTLD_DEFAULT, "proc_listallpids");
+    ProcNameFn procName = (ProcNameFn)dlsym(lib ?: RTLD_DEFAULT, "proc_name");
+    ProcPidPathFn procPath = (ProcPidPathFn)dlsym(lib ?: RTLD_DEFAULT, "proc_pidpath");
+    [out appendFormat:@"symbols: proc_listallpids=%@ proc_name=%@ proc_pidpath=%@\n", listAll ? @"YES" : @"NO", procName ? @"YES" : @"NO", procPath ? @"YES" : @"NO"];
+    if (!listAll || !procName || !procPath) return;
+
+    int estimated = listAll(NULL, 0);
+    [out appendFormat:@"proc_listallpids(NULL,0) = %d\n", estimated];
+    if (estimated <= 0 || estimated > 65536) return;
+    int capacity = estimated + 256;
+    int *pids = calloc((size_t)capacity, sizeof(int));
+    if (!pids) return;
+    int count = listAll(pids, capacity * (int)sizeof(int));
+    [out appendFormat:@"proc_listallpids(buffer) = %d\n", count];
+    if (count < 0) { free(pids); return; }
+    if (count > capacity) count = capacity;
+
+    NSUInteger interestingCount = 0;
+    NSUInteger pathReadableCount = 0;
+    for (int i = 0; i < count; i++) {
+        int pid = pids[i];
+        if (pid <= 0) continue;
+        char nameBuf[1024] = {0};
+        char pathBuf[4096] = {0};
+        int nrc = procName(pid, nameBuf, sizeof(nameBuf));
+        int prc = procPath(pid, pathBuf, sizeof(pathBuf));
+        NSString *name = nrc > 0 ? [NSString stringWithUTF8String:nameBuf] : @"";
+        NSString *path = prc > 0 ? [NSString stringWithUTF8String:pathBuf] : @"";
+        if (prc > 0) pathReadableCount++;
+        if (!ProcessNameInteresting(name, path)) continue;
+        interestingCount++;
+        [out appendFormat:@"pid=%d name=%@ nameRC=%d pathRC=%d path=%@\n", pid, name.length ? name : @"<unavailable>", nrc, prc, path.length ? path : @"<unavailable>"];
+        if (path.length) {
+            NSDictionary *ent = SigningEntitlementsForURL([NSURL fileURLWithPath:path], out);
+            AppendInterestingEntitlements(out, ent);
+        }
+    }
+    [out appendFormat:@"processes total=%d pathsReadable=%lu interesting=%lu\n", count, (unsigned long)pathReadableCount, (unsigned long)interestingCount];
+    free(pids);
+}
+
 NSString *CallerIdentityGenerateReport(void) {
     NSMutableString *out = [NSMutableString string];
-    [out appendString:@"========== iOS 27 VI LaunchServices + CodeSigning READ-ONLY Diagnostic ==========\n"];
+    [out appendString:@"========== iOS 27 VI Protected CodeSigning + Process READ-ONLY Diagnostic ==========\n"];
     [out appendFormat:@"Generated: %@\n", [NSDate date]];
     [out appendFormat:@"OS: %@\n", NSProcessInfo.processInfo.operatingSystemVersionString];
     [out appendFormat:@"Process: %@ bundle=%@\n", NSProcessInfo.processInfo.processName, NSBundle.mainBundle.bundleIdentifier ?: @"<nil>"];
-    [out appendString:@"SAFETY: read-only metadata/signature inspection. No GenerativeExperiences availability XPC call, no setters, no method swizzling/IMP replacement, no preference/MobileGestalt writes, no respring/reboot. LaunchServices may use its normal internal read-only IPC.\n\n"];
+    [out appendString:@"SAFETY: read-only only. No GenerativeExperiences availability XPC call, no setters, no method swizzling/IMP replacement, no preference/MobileGestalt writes, no respring/reboot. Security code-signing inspection and libproc process/path queries only.\n"];
+    [out appendString:@"Exact 24A5390f IPSW diff confirms Camera executable candidate: /private/var/staged_system_apps/Camera.app/Camera. This probe asks Security.framework to inspect that path even when FileManager cannot read it.\n\n"];
 
     NSArray *apps = WorkspaceApplications(out);
     NSMutableArray *interesting = [NSMutableArray array];
@@ -167,13 +233,20 @@ NSString *CallerIdentityGenerateReport(void) {
         }
     }
 
-    [out appendString:@"\n--- direct readable system code-signing controls ---\n"];
-    NSArray<NSString *> *paths = @[@"/System/Library/CoreServices/SpringBoard.app", @"/System/Library/PrivateFrameworks/VisualIntelligenceServices.framework/visualintelligenced"];
-    for (NSString *path in paths) {
-        [out appendFormat:@"\npath=%@\n", path];
-        NSDictionary *ent = SigningEntitlementsForURL([NSURL fileURLWithPath:path], out);
-        AppendInterestingEntitlements(out, ent);
-    }
+    [out appendString:@"\n--- Security.framework protected-path attempts ---\n"];
+    NSArray<NSArray<NSString *> *> *targets = @[
+        @[@"Camera bundle", @"/private/var/staged_system_apps/Camera.app"],
+        @[@"Camera executable", @"/private/var/staged_system_apps/Camera.app/Camera"],
+        @[@"ScreenshotServicesService bundle", @"/Applications/ScreenshotServicesService.app"],
+        @[@"ScreenshotServicesService executable", @"/Applications/ScreenshotServicesService.app/ScreenshotServicesService"],
+        @[@"Tamale bundle", @"/Applications/Tamale.app"],
+        @[@"Tamale executable", @"/Applications/Tamale.app/Tamale"],
+        @[@"visualintelligenced", @"/System/Library/PrivateFrameworks/VisualIntelligenceServices.framework/visualintelligenced"],
+        @[@"SpringBoard", @"/System/Library/CoreServices/SpringBoard.app"]
+    ];
+    for (NSArray<NSString *> *target in targets) AppendSigningPath(out, target[0], target[1]);
+
+    AppendProcessSnapshot(out);
 
     [out appendString:@"\n===============================================================================\n"];
     return out;
