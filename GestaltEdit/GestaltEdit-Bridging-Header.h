@@ -11,3 +11,4 @@
 #import "VIProcessEntitlementProbe.h"
 #import "VILSApplicationProxyProbe.h"
 #import "VICameraSiriPreflightXrefProbe.h"
+#import "VICameraSiriPreflightXrefSafeProbe.h"
