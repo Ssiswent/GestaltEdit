@@ -9,3 +9,4 @@
 #import "VIChinaMetadataProbe.h"
 #import "VICallerContextMetadataProbe.h"
 #import "VIProcessEntitlementProbe.h"
+#import "VILSApplicationProxyProbe.h"
