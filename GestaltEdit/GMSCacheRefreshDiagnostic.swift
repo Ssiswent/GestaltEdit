@@ -2,20 +2,22 @@ import CoreFoundation
 import Darwin
 import Foundation
 import ObjectiveC.runtime
+import UIKit
 
 /// Targeted diagnostic/experiment for the Camera Visual Intelligence investigation.
 ///
-/// Evidence from device logs shows Camera returning a cached unavailable GMS state while
-/// other processes on the same device report the same Apple Intelligence use case as available.
-/// VisionKitCore's VKCGMAvailability caches its result and observes
-/// com.apple.gms.availability.notification. This probe snapshots the same public-in-process
-/// surfaces before/after broadcasting that Darwin notification.
+/// Native device logs show that the direct Camera Control launch can start Camera, compute an
+/// unavailable GMS/VisionKit state very early, and only later register the Darwin availability
+/// observer. A single notification sent before Camera launches can therefore be missed.
 ///
-/// The broadcast is transient and non-persistent: it does not write preferences, MobileGestalt,
-/// files, or availability state. It merely posts the notification name already observed by
-/// GenerativeModels/VisionKitCore.
+/// This version opens a short background execution window and repeatedly broadcasts the same
+/// transient com.apple.gms.availability.notification while the user directly long-presses Camera
+/// Control. This lets a freshly launched Camera process receive the signal after its observer is
+/// registered. No preferences, MobileGestalt, files, or availability values are written.
 enum GMSCacheRefreshDiagnostic {
     private static let notificationName = "com.apple.gms.availability.notification"
+    private static let refreshWindowSeconds: TimeInterval = 8.0
+    private static let refreshIntervalSeconds: TimeInterval = 0.25
 
     private typealias GMCurrentFn =
         @convention(c) (AnyObject, Selector, AnyObject, AnyObject?) -> Int64
@@ -33,30 +35,102 @@ enum GMSCacheRefreshDiagnostic {
         return lines.joined(separator: "\n")
     }
 
-    static func broadcastAndMeasureReport() -> String {
-        var lines = header(title: "BROADCAST + BEFORE/AFTER")
-        appendSnapshot(label: "before", to: &lines)
+    static func directCameraControlTestStartingReport() -> String {
+        [
+            "========== iOS 27 VI DIRECT CAMERA CONTROL CACHE REFRESH ==========",
+            "TEST WINDOW: 8 seconds",
+            "",
+            "NOW:",
+            "1. Do NOT open Camera manually.",
+            "2. Immediately long-press Camera Control to invoke Visual Intelligence directly.",
+            "3. Keep the VI/Camera screen open while the 8-second refresh window runs.",
+            "4. Afterward, return to GestaltEdit and Copy the completed report.",
+            "",
+            "The app is repeatedly posting only the transient Darwin notification:",
+            notificationName,
+            "",
+            "No preferences, MobileGestalt, files, GMS values, respring, or reboot are performed.",
+            "==================================================================="
+        ].joined(separator: "\n")
+    }
 
+    /// Starts an 8-second refresh window intended specifically for the real user flow:
+    /// GestaltEdit -> long-press Camera Control -> Camera launches directly into the VI path.
+    /// A UIKit background task keeps this app alive briefly after Camera takes foreground.
+    static func startDirectCameraControlRefreshWindow(completion: @escaping (String) -> Void) {
+        var lines = header(title: "DIRECT CAMERA CONTROL 8s WINDOW")
+        appendSnapshot(label: "before-window", to: &lines)
         lines.append("")
-        lines.append("--- transient Darwin availability refresh signal ---")
+        lines.append("--- direct Camera Control refresh window ---")
+        lines.append("windowSeconds=\(String(format: "%.2f", refreshWindowSeconds))")
+        lines.append("intervalSeconds=\(String(format: "%.2f", refreshIntervalSeconds))")
+        lines.append("expectedPosts≈\(Int(refreshWindowSeconds / refreshIntervalSeconds))")
+        lines.append("Instruction: do NOT open Camera first; long-press Camera Control directly while this window is active.")
+
+        let app = UIApplication.shared
+        var backgroundTask: UIBackgroundTaskIdentifier = .invalid
+        var finished = false
+        var postCount = 0
+        let startedAt = Date()
+
+        func endBackgroundTaskIfNeeded() {
+            if backgroundTask != .invalid {
+                app.endBackgroundTask(backgroundTask)
+                backgroundTask = .invalid
+            }
+        }
+
+        func finish(reason: String) {
+            guard !finished else { return }
+            finished = true
+
+            let elapsed = Date().timeIntervalSince(startedAt)
+            lines.append("finishReason=\(reason)")
+            lines.append("elapsedSeconds=\(String(format: "%.3f", elapsed))")
+            lines.append("postCount=\(postCount)")
+            lines.append("")
+            appendSnapshot(label: "after-window", to: &lines)
+            lines.append("")
+            lines.append("INTERPRETATION:")
+            lines.append("1. If direct long-press VI works during/after this window, Camera's early stale GMS/VK cache becomes the leading cause.")
+            lines.append("2. If Camera still falls back to Photo/VI unavailable, the next priority is Camera-specific caller/process initialization or a privileged availability input, not languageOption.")
+            lines.append("3. Repeated posts are used because native logs show Camera can compute AIAvailability before it registers the GMS Darwin observer during launch.")
+            lines.append("===============================================================================")
+
+            endBackgroundTaskIfNeeded()
+            completion(lines.joined(separator: "\n"))
+        }
+
+        backgroundTask = app.beginBackgroundTask(withName: "VI-GMS-Refresh-Window") {
+            finish(reason: "background-task-expired")
+        }
+
+        func tick() {
+            guard !finished else { return }
+
+            let elapsed = Date().timeIntervalSince(startedAt)
+            if elapsed >= refreshWindowSeconds {
+                finish(reason: "completed-8s-window")
+                return
+            }
+
+            postAvailabilityNotification()
+            postCount += 1
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + refreshIntervalSeconds) {
+                tick()
+            }
+        }
+
+        // Post immediately, then continue every 250 ms. If Camera launches after the first post,
+        // later posts can still arrive after its observer registration completes.
+        tick()
+    }
+
+    private static func postAvailabilityNotification() {
         let center = CFNotificationCenterGetDarwinNotifyCenter()
         let name = CFNotificationName(rawValue: notificationName as CFString)
         CFNotificationCenterPostNotification(center, name, nil, nil, true)
-        lines.append("CFNotificationCenterPostNotification(\(notificationName))=sent")
-        lines.append("NOTE: this posts a transient notification only; it does not persist or write availability values.")
-
-        // Give in-process observers time to process the notification before re-reading state.
-        Thread.sleep(forTimeInterval: 0.75)
-
-        lines.append("")
-        appendSnapshot(label: "after-750ms", to: &lines)
-        lines.append("")
-        lines.append("INTERPRETATION:")
-        lines.append("1. If this app's values change after the signal, a live cache refresh path is confirmed locally.")
-        lines.append("2. Camera can be left alive in the app switcher while this button is pressed; then return to Camera and test VI. A functional change would directly implicate Camera's stale GMS/VK cache.")
-        lines.append("3. If Camera remains unavailable, the next priority is caller/process-specific initialization rather than language, requestType, VLU authorization, or PartnerImageSearch.")
-        lines.append("===============================================================================")
-        return lines.joined(separator: "\n")
     }
 
     private static func header(title: String) -> [String] {
@@ -66,7 +140,7 @@ enum GMSCacheRefreshDiagnostic {
             "OS: \(ProcessInfo.processInfo.operatingSystemVersionString)",
             "Process: \(ProcessInfo.processInfo.processName) bundle=\(Bundle.main.bundleIdentifier ?? "<nil>")",
             "Locale.current=\(Locale.current.identifier)",
-            "SAFETY: snapshots use only previously verified zero/two-argument getters. Broadcast mode only posts the transient Darwin notification com.apple.gms.availability.notification. No secure XPC, setters/preheat, swizzling/IMP replacement, preferences/MobileGestalt/file writes, respring or reboot.",
+            "SAFETY: snapshots use only previously verified zero/two-argument getters. Refresh mode only posts the transient Darwin notification com.apple.gms.availability.notification and briefly requests normal UIKit background execution so posting can continue when Camera takes foreground. No secure XPC, setters/preheat, swizzling/IMP replacement, preferences/MobileGestalt/file writes, respring or reboot.",
             ""
         ]
     }
