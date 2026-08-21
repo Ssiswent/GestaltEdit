@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 import UIKit
 
 struct DiagnosticExportView: View {
-    @State private var report = "Running crash-safe VI request-type inspection…"
+    @State private var report = "Running valid-request VI + China-policy diagnostic…"
     @State private var isExporting = false
     @State private var copied = false
     @State private var isWorking = false
@@ -13,10 +13,10 @@ struct DiagnosticExportView: View {
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        Label("VI Request-Type Crash-Safe Probe", systemImage: "doc.text.magnifyingglass")
+                        Label("VI Valid Request + China Policy", systemImage: "doc.text.magnifyingglass")
                             .font(.headline)
 
-                        Text("Read-only diagnostic. It does not call the enum-consuming isRichAnalysisAvailableForRequestType:bundleID: method. It reads ABI-verified VI getters and inspects Objective-C metadata plus loaded Mach-O reflection/cstring sections to identify the valid request/entry type without guessing raw enum values.")
+                        Text("Read-only diagnostic. It uses only requestType 0, which the previous crash-safe probe proved is the default/valid VIC request type on this exact build. It compares bundle-aware rich-analysis availability and inspects GreymatterAvailability runtime metadata, including the newly discovered China-policy field names. No arbitrary enum values, setters, preheat, swizzling, MobileGestalt writes, or system preference writes are used.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
@@ -56,7 +56,7 @@ struct DiagnosticExportView: View {
                 }
                 .padding(16)
             }
-            .navigationTitle("VI Crash-Safe Probe")
+            .navigationTitle("VI Policy Probe")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -68,7 +68,7 @@ struct DiagnosticExportView: View {
                 isPresented: $isExporting,
                 document: DiagnosticTextDocument(text: report),
                 contentType: .plainText,
-                defaultFilename: "GestaltEdit-iOS27-VI-RequestType-CrashSafe"
+                defaultFilename: "GestaltEdit-iOS27-VI-ValidRequest-ChinaPolicy"
             ) { _ in }
         }
     }
