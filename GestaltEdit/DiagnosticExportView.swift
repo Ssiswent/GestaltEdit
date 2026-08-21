@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 import UIKit
 
 struct DiagnosticExportView: View {
-    @State private var report = "Open Camera once, return here without force-quitting it, then tap Run Process Probe. For Tamale/Visual Intelligence, invoke it once, return here, and run again. This build performs read-only process/code-signing queries only."
+    @State private var report = "Tap Run LS Proxy Probe. This build does not enumerate processes or read protected app executables; it asks LaunchServices for the registered application proxy for Camera/Tamale/ScreenshotServicesService and, only if the current runtime exposes a read-only entitlements object getter with the expected ABI, reads it."
     @State private var isExporting = false
     @State private var copied = false
     @State private var isWorking = false
@@ -13,10 +13,10 @@ struct DiagnosticExportView: View {
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        Label("VI Live Process Entitlements", systemImage: "signature")
+                        Label("VI LaunchServices Proxy", systemImage: "app.badge.checkmark")
                             .font(.headline)
 
-                        Text("The previous file-based entitlement probe was blocked by ContainerManager for Camera/Tamale. This version avoids protected app-file reads and instead enumerates live/suspended processes, then asks the kernel for their code-signing status and entitlement blob via read-only csops queries. No task_for_pid or process-memory access is used.")
+                        Text("proc_listallpids is denied to the third-party sandbox on this device, and direct Camera.app reads are blocked by ContainerManager. This version instead resolves installed-system application records by bundle identifier through LSApplicationProxy. No process enumeration or filesystem escape is used.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
@@ -34,7 +34,7 @@ struct DiagnosticExportView: View {
 
                 HStack(spacing: 12) {
                     Button { runProbe() } label: {
-                        Label(isWorking ? "Running…" : "Run Process Probe", systemImage: "play.fill")
+                        Label(isWorking ? "Running…" : "Run LS Proxy Probe", systemImage: "play.fill")
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(isWorking)
@@ -58,13 +58,13 @@ struct DiagnosticExportView: View {
                 }
                 .padding(16)
             }
-            .navigationTitle("VI Process Entitlements")
+            .navigationTitle("VI LS Proxy")
             .navigationBarTitleDisplayMode(.inline)
             .fileExporter(
                 isPresented: $isExporting,
                 document: DiagnosticTextDocument(text: report),
                 contentType: .plainText,
-                defaultFilename: "GestaltEdit-iOS27-VI-Live-Process-Entitlements"
+                defaultFilename: "GestaltEdit-iOS27-VI-LaunchServices-AppProxy"
             ) { _ in }
         }
     }
@@ -73,7 +73,7 @@ struct DiagnosticExportView: View {
         guard !isWorking else { return }
         isWorking = true
         copied = false
-        report = VIProcessEntitlementGenerateReport()
+        report = VILSApplicationProxyGenerateReport()
         isWorking = false
     }
 }
