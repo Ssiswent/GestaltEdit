@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 import UIKit
 
 struct DiagnosticExportView: View {
-    @State private var report = "Tap Run Metadata Probe. This build does not modify availability or attempt to launch Camera; it only maps the in-process VisionKitCore / VisualIntelligenceCore / GenerativeModels surfaces that could explain Camera's caller-specific AIAvailability=NO result."
+    @State private var report = "Tap Run Caller/Entitlement Probe. This build performs read-only inspection of the signed system binaries for Camera, visualintelligenced, Tamale, ScreenshotServicesService, SpringBoard, generativeexperiencesd, countryd and eligibilityd, then compares VI/GMS-relevant entitlements and service access."
     @State private var isExporting = false
     @State private var copied = false
     @State private var isWorking = false
@@ -13,10 +13,10 @@ struct DiagnosticExportView: View {
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        Label("VI Caller Context / AIAvailability", systemImage: "scope")
+                        Label("VI Caller / Entitlement Differential", systemImage: "person.badge.key")
                             .font(.headline)
 
-                        Text("The direct Camera-Control cache-refresh experiment did not change Camera behavior, while the system-wide GenerativeExperiences availability store is available. This probe therefore looks one layer deeper: it scans only mapped framework strings/reflection data and Objective-C runtime metadata for availability, caller, bundle, China/country/region/cellular, MobileGestalt, audit/entitlement and related surfaces. No private availability API is invoked.")
+                        Text("The direct Camera-Control refresh-window test did not change Camera behavior, so this probe moves to process-specific initialization. It compares the embedded code-signing entitlements of Camera and the VI/GMS processes that succeed on the same device. Protected system paths are only read; no availability API, XPC service, preference, MobileGestalt value, file, or system state is modified.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
@@ -34,7 +34,7 @@ struct DiagnosticExportView: View {
 
                 HStack(spacing: 12) {
                     Button { runProbe() } label: {
-                        Label(isWorking ? "Running…" : "Run Metadata Probe", systemImage: "play.fill")
+                        Label(isWorking ? "Running…" : "Run Caller Probe", systemImage: "play.fill")
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(isWorking)
@@ -58,13 +58,13 @@ struct DiagnosticExportView: View {
                 }
                 .padding(16)
             }
-            .navigationTitle("VI Caller Context")
+            .navigationTitle("VI Caller Probe")
             .navigationBarTitleDisplayMode(.inline)
             .fileExporter(
                 isPresented: $isExporting,
                 document: DiagnosticTextDocument(text: report),
                 contentType: .plainText,
-                defaultFilename: "GestaltEdit-iOS27-VI-CallerContext-AIAvailability-Metadata"
+                defaultFilename: "GestaltEdit-iOS27-VI-Caller-Entitlement-Differential"
             ) { _ in }
         }
     }
@@ -73,8 +73,13 @@ struct DiagnosticExportView: View {
         guard !isWorking else { return }
         isWorking = true
         copied = false
-        report = VICallerContextMetadataGenerateReport()
-        isWorking = false
+        DispatchQueue.global(qos: .userInitiated).async {
+            let value = ResolvedEntitlementProbe.generateReport()
+            DispatchQueue.main.async {
+                report = value
+                isWorking = false
+            }
+        }
     }
 }
 
