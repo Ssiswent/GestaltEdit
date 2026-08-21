@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 import UIKit
 
 struct DiagnosticExportView: View {
-    @State private var report = "Tap Run Preflight Xref. This crash-safe build does not invoke Camera or any VI availability API. It maps the exact Siri-AI/Apple-Intelligence preflight strings added in 24A5390f back to direct ARM64 ADR/ADRP+ADD references and function-start boundaries inside the currently loaded VisualIntelligenceCore image."
+    @State private var report = "Force-quit Camera first. Then tap Emulate 24A5408d Preheat. After the report appears, immediately go Home and directly long-press Camera Control. Do not open Camera manually first."
     @State private var isExporting = false
     @State private var copied = false
     @State private var isWorking = false
@@ -13,10 +13,10 @@ struct DiagnosticExportView: View {
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        Label("Camera Siri-AI Preflight Xref", systemImage: "scope")
+                        Label("24A5408d Bundle-Aware Preheat", systemImage: "bolt.horizontal.circle")
                             .font(.headline)
 
-                        Text("Exact-build IPSW diffs show that 24A5390f added Camera-specific Apple Intelligence/Siri-AI preflight strings to VisualIntelligenceCore while the Camera executable itself barely changed. This final crash-safe probe resolves only direct ADR and ADRP+ADD string references plus LC_FUNCTION_STARTS and related runtime metadata. It intentionally does not dereference GOT/LDR pointer slots and performs no private availability calls.")
+                        Text("Exact-build IPSW diffs show that 24A5390f introduced VI coordinator configuration with requestType + environmentBundleIdentifier, while 24A5408d immediately added VisionKitCore calls to preheatFor:environmentBundleIdentifier:. This experiment uses only the requestType returned by a fresh config getter and preheats with com.apple.camera. It is transient and does not modify system configuration.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
@@ -34,7 +34,7 @@ struct DiagnosticExportView: View {
 
                 HStack(spacing: 12) {
                     Button { runProbe() } label: {
-                        Label(isWorking ? "Running…" : "Run Preflight Xref", systemImage: "play.fill")
+                        Label(isWorking ? "Preheating…" : "Emulate 24A5408d Preheat", systemImage: "bolt.fill")
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(isWorking)
@@ -58,13 +58,13 @@ struct DiagnosticExportView: View {
                 }
                 .padding(16)
             }
-            .navigationTitle("VI Preflight Xref")
+            .navigationTitle("VI 5408d Preheat")
             .navigationBarTitleDisplayMode(.inline)
             .fileExporter(
                 isPresented: $isExporting,
                 document: DiagnosticTextDocument(text: report),
                 contentType: .plainText,
-                defaultFilename: "GestaltEdit-iOS27-VI-Camera-SiriAI-Preflight-Xref-CrashSafe"
+                defaultFilename: "GestaltEdit-iOS27-VI-24A5408d-BundleAware-Preheat"
             ) { _ in }
         }
     }
@@ -73,7 +73,7 @@ struct DiagnosticExportView: View {
         guard !isWorking else { return }
         isWorking = true
         copied = false
-        report = VICameraSiriPreflightXrefSafeGenerateReport()
+        report = VIPreheat5408EmulationGenerateReport()
         isWorking = false
     }
 }
