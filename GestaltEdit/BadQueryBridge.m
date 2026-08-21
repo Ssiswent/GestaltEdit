@@ -166,3 +166,96 @@ BOOL BadQueryBridgeAvailable(void)
 }
 
 @end
+
+NSData *BadQueryReadDataAtPath(NSString *path, NSString **error)
+{
+    NSString *leaseError = nil;
+    BadQueryLease *lease = [BadQueryLease leaseForPath:path error:&leaseError];
+    if (!lease) {
+        if (error) *error = leaseError ?: @"failed to obtain read lease";
+        return nil;
+    }
+
+    NSError *readError = nil;
+    NSData *data = [NSData dataWithContentsOfFile:path
+                                         options:NSDataReadingMappedIfSafe
+                                           error:&readError];
+    [lease invalidate];
+
+    if (!data) {
+        if (error) *error = readError.localizedDescription ?: @"file read failed";
+        return nil;
+    }
+    if (error) *error = nil;
+    return data;
+}
+
+NSArray<NSString *> *BadQueryListDirectoryAtPath(NSString *path, NSString **error)
+{
+    NSString *leaseError = nil;
+    BadQueryLease *lease = [BadQueryLease leaseForPath:path error:&leaseError];
+    if (!lease) {
+        if (error) *error = leaseError ?: @"failed to obtain directory read lease";
+        return nil;
+    }
+
+    NSError *listError = nil;
+    NSArray<NSString *> *items = [[NSFileManager defaultManager]
+        contentsOfDirectoryAtPath:path
+                            error:&listError];
+    [lease invalidate];
+
+    if (!items) {
+        if (error) *error = listError.localizedDescription ?: @"directory listing failed";
+        return nil;
+    }
+    if (error) *error = nil;
+    return items;
+}
+
+NSString *BadQueryFindExecutableInImmediateSubdirectories(
+    NSString *rootPath,
+    NSString *bundleDirectoryName,
+    NSString *executableName,
+    NSString **error)
+{
+    NSString *leaseError = nil;
+    BadQueryLease *lease = [BadQueryLease leaseForPath:rootPath error:&leaseError];
+    if (!lease) {
+        if (error) *error = leaseError ?: @"failed to obtain root directory read lease";
+        return nil;
+    }
+
+    NSError *listError = nil;
+    NSArray<NSString *> *children = [[NSFileManager defaultManager]
+        contentsOfDirectoryAtPath:rootPath
+                            error:&listError];
+    if (!children) {
+        [lease invalidate];
+        if (error) *error = listError.localizedDescription ?: @"root directory listing failed";
+        return nil;
+    }
+
+    NSFileManager *fm = [NSFileManager defaultManager];
+    for (NSString *child in children) {
+        NSString *candidate = [[[rootPath stringByAppendingPathComponent:child]
+            stringByAppendingPathComponent:bundleDirectoryName]
+            stringByAppendingPathComponent:executableName];
+        BOOL isDirectory = NO;
+        if ([fm fileExistsAtPath:candidate isDirectory:&isDirectory] && !isDirectory) {
+            [lease invalidate];
+            if (error) *error = nil;
+            return candidate;
+        }
+    }
+
+    [lease invalidate];
+    if (error) {
+        *error = [NSString stringWithFormat:
+            @"%@/%@ not found under %lu immediate subdirectories",
+            bundleDirectoryName,
+            executableName,
+            (unsigned long)children.count];
+    }
+    return nil;
+}
