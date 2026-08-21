@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 import UIKit
 
 struct DiagnosticExportView: View {
-    @State private var report = "Tap Run to inspect VI request context and VLU authorization."
+    @State private var report = "Tap Run to map VI China/region fields back to their real Swift owner types."
     @State private var isExporting = false
     @State private var copied = false
     @State private var isWorking = false
@@ -13,10 +13,10 @@ struct DiagnosticExportView: View {
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        Label("VI Request Context + VLU Auth", systemImage: "checkmark.shield")
+                        Label("VI China Field Owner + RequestType", systemImage: "checkmark.shield")
                             .font(.headline)
 
-                        Text("Crash-safe read-only probe. It recovers the five real VIC request-type case names from Swift metadata, inspects VI/VLU request configuration surfaces, and calls only allowlisted zero-argument getters whose ABI is verified at runtime. It does not invoke the rich-analysis enum API or modify system state.")
+                        Text("Crash-safe read-only metadata probe. It maps isChinaRegion and related VI fields to their concrete Swift owner types, resolves 0x01/0x02 symbolic references across loaded images, and recovers the real requestType enum by matching descriptor owners. It does not invoke private VI getters, setters, preheat, XPC, or enum-taking APIs.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
@@ -58,13 +58,13 @@ struct DiagnosticExportView: View {
                 }
                 .padding(16)
             }
-            .navigationTitle("VI Context Probe")
+            .navigationTitle("VI China Metadata")
             .navigationBarTitleDisplayMode(.inline)
             .fileExporter(
                 isPresented: $isExporting,
                 document: DiagnosticTextDocument(text: report),
                 contentType: .plainText,
-                defaultFilename: "GestaltEdit-iOS27-VI-RequestContext-VLUAuth"
+                defaultFilename: "GestaltEdit-iOS27-VI-ChinaFieldOwner-RequestType"
             ) { _ in }
         }
     }
@@ -73,7 +73,7 @@ struct DiagnosticExportView: View {
         guard !isWorking else { return }
         isWorking = true
         copied = false
-        report = VIRequestContextGenerateReport()
+        report = VIChinaMetadataGenerateReport()
         isWorking = false
     }
 }
