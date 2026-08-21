@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 import UIKit
 
 struct DiagnosticExportView: View {
-    @State private var report = "Tap Run to compare VI GenerativeModels availability across languageOption values."
+    @State private var report = "Use Snapshot for a read-only baseline. For the cache experiment, leave Camera alive in the app switcher, return here, tap Broadcast Refresh, then immediately return to Camera and test Visual Intelligence."
     @State private var isExporting = false
     @State private var copied = false
     @State private var isWorking = false
@@ -13,10 +13,10 @@ struct DiagnosticExportView: View {
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        Label("VI GM Language Matrix", systemImage: "checkmark.shield")
+                        Label("VI GMS / VK Cache Refresh", systemImage: "arrow.clockwise.circle")
                             .font(.headline)
 
-                        Text("Crash-safe read-only probe. GreymatterAvailability keys each entry by useCaseIdentifier plus languageOption, so this compares the same VI use cases across nil, English and Chinese BCP-47 language tags using only previously verified GMAvailabilityWrapper getters. No secure XPC or system writes are performed.")
+                        Text("Targeted cache experiment based on native Camera logs: Camera reports com.apple.Settings.AppleIntelligence unavailable and then says it is returning a cached availability state, while other processes on the same device report the same use case as available. Snapshot is read-only. Broadcast Refresh only posts the transient Darwin notification already observed by GenerativeModels and VKCGMAvailability; it does not write preferences, MobileGestalt, files, or availability values.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
@@ -32,48 +32,66 @@ struct DiagnosticExportView: View {
 
                 Divider()
 
-                HStack(spacing: 12) {
-                    Button { runProbe() } label: {
-                        Label(isWorking ? "Running…" : "Run", systemImage: "play.fill")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(isWorking)
+                VStack(spacing: 10) {
+                    HStack(spacing: 12) {
+                        Button { runSnapshot() } label: {
+                            Label("Snapshot", systemImage: "doc.text.magnifyingglass")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(isWorking)
 
-                    Button {
-                        UIPasteboard.general.string = report
-                        copied = true
-                    } label: {
-                        Label(copied ? "Copied" : "Copy", systemImage: "doc.on.doc")
+                        Button { runBroadcast() } label: {
+                            Label(isWorking ? "Running…" : "Broadcast Refresh", systemImage: "arrow.clockwise")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(isWorking)
                     }
-                    .buttonStyle(.bordered)
-                    .disabled(isWorking)
 
-                    Spacer()
+                    HStack(spacing: 12) {
+                        Button {
+                            UIPasteboard.general.string = report
+                            copied = true
+                        } label: {
+                            Label(copied ? "Copied" : "Copy", systemImage: "doc.on.doc")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(isWorking)
 
-                    Button { isExporting = true } label: {
-                        Label("Export TXT", systemImage: "square.and.arrow.up")
+                        Spacer()
+
+                        Button { isExporting = true } label: {
+                            Label("Export TXT", systemImage: "square.and.arrow.up")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(isWorking)
                     }
-                    .buttonStyle(.bordered)
-                    .disabled(isWorking)
                 }
                 .padding(16)
             }
-            .navigationTitle("VI Language Matrix")
+            .navigationTitle("VI Cache Refresh")
             .navigationBarTitleDisplayMode(.inline)
             .fileExporter(
                 isPresented: $isExporting,
                 document: DiagnosticTextDocument(text: report),
                 contentType: .plainText,
-                defaultFilename: "GestaltEdit-iOS27-VI-GM-LanguageMatrix"
+                defaultFilename: "GestaltEdit-iOS27-VI-GMS-VK-CacheRefresh"
             ) { _ in }
         }
     }
 
-    private func runProbe() {
+    private func runSnapshot() {
         guard !isWorking else { return }
         isWorking = true
         copied = false
-        report = GMSLanguageMatrixDiagnostic.generateReport()
+        report = GMSCacheRefreshDiagnostic.snapshotReport()
+        isWorking = false
+    }
+
+    private func runBroadcast() {
+        guard !isWorking else { return }
+        isWorking = true
+        copied = false
+        report = GMSCacheRefreshDiagnostic.broadcastAndMeasureReport()
         isWorking = false
     }
 }
